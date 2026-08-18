@@ -23,18 +23,41 @@ O time de suporte usa o **terminal do sistema** (Terminal no macOS, Prompt/Power
 
 ## Instalação (uma vez)
 
-No terminal, na pasta do projeto:
+### Windows (PowerShell) — time de suporte
+
+1. Instale o Python 3.12 em [python.org/downloads](https://www.python.org/downloads/). No instalador, marque **Add python.exe to PATH**. Não use a Microsoft Store.
+2. Feche o PowerShell e abra de novo.
+3. Confira: `python --version` deve mostrar `Python 3.12...` (não a mensagem da Store).
+4. Vá até a pasta do projeto (a que contém `plane_cli` e `requirements.txt`) e rode:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+Copy-Item projects.yaml.example projects.yaml
+```
+
+Se o `Activate.ps1` for bloqueado, rode uma vez:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Depois volte a `.\.venv\Scripts\Activate.ps1`.
+
+O prompt deve ficar `(.venv) PS C:\...\plane-automatic>`.
+
+### macOS / Linux
 
 ```bash
 cd plane-automatic
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 cp .env.example .env
 cp projects.yaml.example projects.yaml
 ```
-
-No Windows, ative o ambiente com `.venv\Scripts\activate`.
 
 Edite o `.env`:
 
@@ -67,9 +90,18 @@ As chaves precisam coincidir com as labels do projeto de suporte. `python -m pla
 
 ### Uso no dia a dia
 
+Windows (PowerShell), na pasta do projeto:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m plane_cli suporte create --help
+```
+
+macOS / Linux:
+
 ```bash
-cd plane-automatic
 source .venv/bin/activate
+python -m plane_cli suporte create --help
 ```
 
 A saída dos `create` é JSON no stdout (id, sequence, url). Erros e avisos vão para stderr.
