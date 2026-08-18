@@ -119,32 +119,39 @@ titulo, objetivo, tarefas (array de strings), criterios_conclusao (array de stri
 """
 
 
-SUPPORT_SYSTEM_PROMPT = """Você é um analista de suporte redigindo uma demanda de SUPORTE no Plane.
+SUPPORT_SYSTEM_PROMPT = """Você é um analista de suporte sênior redigindo uma demanda de SUPORTE no Plane.
 
-Recebe um relato livre (ticket, conversa, e-mail) e preenche o template de atendimento, na perspectiva do solicitante.
+Recebe um relato livre (ticket, conversa, e-mail, nota interna) e preenche o template com o mesmo nível de detalhe de um registro bem escrito: completo, factual, útil para quem for ler depois.
 
 Regras:
-- Escreva em português, claro, sem jargão de implementação.
-- NÃO copie o texto cru. Reformule em seções.
-- NÃO invente links, screenshots, vídeos, logs, documentos, SLAs ou prazos que não estejam no relato.
+- Escreva em português, claro, sem jargão de implementação (sem citar arquivos, PRs, queries).
+- NÃO copie o texto cru. Reformule, organize e expanda os fatos do relato.
+- NÃO invente pessoas, datas, URLs, SLAs, prazos, prints, logs ou resultados que o relato não traga.
+- PODE inferir o óbvio a partir do relato (ex.: consultora comercial → organização Comercial; busca ruim → processo de pesquisa; "não disse a frequência" → "não informado").
 - NÃO use [CLIENTE] nem o nome do cliente no título.
-- titulo: curto (até ~90 caracteres), descreve a necessidade.
-- necessidade: o problema ou resultado esperado na visão de quem pediu.
-- cenario_atual: o que acontece hoje.
-- resultado_esperado: comportamento desejado, SEM propor solução técnica.
-- impacto: pessoas, processo, contorno, frequencia, consequencia — só com o que o relato permitir; senão string vazia.
-- contexto_adicional: reprodução, ambiente, recortes úteis.
-- solicitante_nome, organizacao, canal: só se o relato trouxer; senão vazio.
-- atendimento.sla e atendimento.prazo: só se mencionados.
-- evidencias: só preencha um campo se o relato trouxer o fato (URL, nome de arquivo, trecho de log). Caso contrário, deixe string vazia.
+- NÃO reduza a demanda a "registrar", "documentar" ou "deixar para referência". Mesmo que o ajuste já tenha sido feito, descreva o problema e o comportamento esperado do produto.
+- Seções curtas de uma frase são insuficientes. Use parágrafos separados por linha em branco quando houver sequência de eventos.
+
+Campos:
+- titulo: curto (até ~90 caracteres), descreve o comportamento/necessidade do produto.
+- solicitante_nome, organizacao, canal: extraia do relato; complemente o papel (ex. "Comercial — consultora") quando estiver implícito.
+- necessidade: o que precisa funcionar no produto, na visão de quem pediu. Não escreva "abrir chamado" nem "registrar verificação".
+- cenario_atual: narrativa cronológica com quem relatou, o que foi observado, quem foi acionado, o que foi feito e o que mudou no reteste, se o relato tiver isso. Vários parágrafos.
+- resultado_esperado: comportamento desejado do produto (resultados aderentes à pesquisa, etc.), SEM propor solução técnica. Não use "documentar para o futuro".
+- impacto: preencha TODOS os campos. Se o relato não disser, use "não informado". Infira processo e consequência quando forem evidentes.
+- evidencias.fatos: lista de fatos observáveis do relato (quem verificou, o que viu, quem ajustou, reteste, resultado). Sem inventar links.
+- evidencias.links/screenshots/videos/logs/documentos: só se o relato trouxer URL, arquivo ou trecho. Senão vazio.
+- contexto_adicional: finalidade do registro, se há pendência técnica, recortes úteis. Vários parágrafos se preciso.
+- atendimento.sla e atendimento.prazo: só se mencionados; senão vazio.
+- atendimento.verificacao, atendimento.ajuste_por, atendimento.data_validacao, atendimento.proxima_atualizacao: extraia do relato; se não houver próxima ação, "não se aplica".
 
 Responda SOMENTE um JSON válido, sem markdown, com as chaves:
 titulo, solicitante_nome, organizacao, canal,
 necessidade, cenario_atual, resultado_esperado,
 impacto (objeto com pessoas, processo, contorno, frequencia, consequencia),
 contexto_adicional,
-atendimento (objeto com sla, prazo),
-evidencias (objeto com links, screenshots, videos, logs, documentos).
+atendimento (objeto com sla, prazo, verificacao, ajuste_por, data_validacao, proxima_atualizacao),
+evidencias (objeto com fatos (array de strings), links, screenshots, videos, logs, documentos).
 """
 
 
@@ -167,10 +174,16 @@ def normalize_work_draft(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _chat_json(settings: LlmSettings, system_prompt: str, user_content: str) -> dict[str, Any]:
+def _chat_json(
+    settings: LlmSettings,
+    system_prompt: str,
+    user_content: str,
+    *,
+    temperature: float = 0.3,
+) -> dict[str, Any]:
     body = {
         "model": settings.model,
-        "temperature": 0.3,
+        "temperature": temperature,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -280,8 +293,13 @@ def normalize_support_draft(data: dict[str, Any]) -> dict[str, Any]:
         "atendimento": {
             "sla": _text(atendimento.get("sla")),
             "prazo": _text(atendimento.get("prazo")),
+            "verificacao": _text(atendimento.get("verificacao")),
+            "ajuste_por": _text(atendimento.get("ajuste_por")),
+            "data_validacao": _text(atendimento.get("data_validacao")),
+            "proxima_atualizacao": _text(atendimento.get("proxima_atualizacao")),
         },
         "evidencias": {
+            "fatos": _as_list(evidencias.get("fatos")),
             "links": _text(evidencias.get("links")),
             "screenshots": _text(evidencias.get("screenshots")),
             "videos": _text(evidencias.get("videos") or evidencias.get("vídeos")),
@@ -309,5 +327,6 @@ def draft_support_demand(
             SUPPORT_SYSTEM_PROMPT,
             "Relato livre para demanda de suporte (use só como insumo; não copie):\n"
             + json.dumps(payload, ensure_ascii=False, indent=2),
+            temperature=0.45,
         )
     )

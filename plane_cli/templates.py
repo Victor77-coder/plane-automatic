@@ -34,6 +34,14 @@ def _li_text(label: str, value: str = "") -> str:
     return html.escape(label)
 
 
+def _labeled_items(pairs: list[tuple[str, str]], *, keep_empty: bool = True) -> list[str]:
+    items: list[str] = []
+    for label, value in pairs:
+        if value or keep_empty:
+            items.append(_li_text(label, value))
+    return items
+
+
 def _placeholder(text: str) -> str:
     return f"<p>{html.escape(text)}</p>"
 
@@ -60,6 +68,36 @@ def support_demand_html(
     impacto = payload.get("impacto") if isinstance(payload.get("impacto"), dict) else {}
     atendimento = payload.get("atendimento") if isinstance(payload.get("atendimento"), dict) else {}
     evidencias = payload.get("evidencias") if isinstance(payload.get("evidencias"), dict) else {}
+    fatos = [
+        str(item).strip()
+        for item in (evidencias.get("fatos") or [])
+        if str(item).strip()
+    ]
+    evidencia_labeled = _labeled_items(
+        [
+            ("Links:", str(evidencias.get("links") or "")),
+            ("Screenshots:", str(evidencias.get("screenshots") or "")),
+            ("Vídeos:", str(evidencias.get("videos") or "")),
+            ("Logs:", str(evidencias.get("logs") or "")),
+            ("Documentos:", str(evidencias.get("documentos") or "")),
+        ],
+        keep_empty=not fatos,
+    )
+    evidencia_items = [html.escape(fato) for fato in fatos] + evidencia_labeled
+    atendimento_items = [
+        _li_text("Responsável pela comunicação:", responsavel or ""),
+        *_labeled_items(
+            [
+                ("Responsável pela verificação:", str(atendimento.get("verificacao") or "")),
+                ("Ajuste realizado por:", str(atendimento.get("ajuste_por") or "")),
+                ("Data da validação:", str(atendimento.get("data_validacao") or "")),
+                ("SLA:", str(atendimento.get("sla") or "")),
+                ("Prazo solicitado:", str(atendimento.get("prazo") or "")),
+            ],
+            keep_empty=False,
+        ),
+        _li_text("Próxima atualização:", str(atendimento.get("proxima_atualizacao") or "")),
+    ]
     necessidade_text = str(payload.get("necessidade") or necessidade or "").strip()
     return "".join(
         [
@@ -98,29 +136,14 @@ def support_demand_html(
                 ]
             ),
             _h2("Evidências"),
-            _ul(
-                [
-                    _li_text("Links:", str(evidencias.get("links") or "")),
-                    _li_text("Screenshots:", str(evidencias.get("screenshots") or "")),
-                    _li_text("Vídeos:", str(evidencias.get("videos") or "")),
-                    _li_text("Logs:", str(evidencias.get("logs") or "")),
-                    _li_text("Documentos:", str(evidencias.get("documentos") or "")),
-                ]
-            ),
+            _ul(evidencia_items),
             _h2("Contexto adicional"),
             _body(
                 str(payload.get("contexto_adicional") or ""),
                 "Informações necessárias para reprodução, análise ou decisão.",
             ),
             _h2("Atendimento"),
-            _ul(
-                [
-                    _li_text("Responsável pela comunicação:", responsavel or ""),
-                    _li_text("SLA:", str(atendimento.get("sla") or "")),
-                    _li_text("Prazo solicitado:", str(atendimento.get("prazo") or "")),
-                    _li_text("Próxima atualização:"),
-                ]
-            ),
+            _ul(atendimento_items),
         ]
     )
 
