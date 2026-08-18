@@ -1,0 +1,15 @@
+# Mapa: nome exato da label no projeto SUPORTE → UUID do board técnico.
+# Copie para projects.yaml e preencha os UUIDs.
+#
+#   cp projects.yaml.example projects.yaml
+#   python -m plane_cli projects
+#   python -m plane_cli labels
+#
+# No suporte as labels de sistema são no formato produto:<nome>.
+
+produto:fontedeprecos: "<uuid-fontedeprecos>"
+produto:cotacoesgov: "<uuid-cotacoesgov>"
+produto:controlegov: "<uuid-controlegov>"
+produto:crawlers: "<uuid-crawlers>"
+produto:infra: "<uuid-infra>"
+produto:licitegov: "<uuid-licitegov>"
