@@ -9,7 +9,6 @@ from plane_cli.html import (
     html_to_plain,
     is_placeholder,
     parse_h2_sections,
-    plain_to_html,
     section_html,
 )
 
@@ -49,60 +48,76 @@ def _checkboxes(items: list[str]) -> str:
     return f"<ul>{lis}</ul>"
 
 
-def support_demand_html(*, necessidade: str | None = None, data_solicitacao: str | None = None) -> str:
+def support_demand_html(
+    *,
+    necessidade: str | None = None,
+    data_solicitacao: str | None = None,
+    draft: dict[str, Any] | None = None,
+    responsavel: str | None = None,
+) -> str:
     data = data_solicitacao or date.today().isoformat()
-    necessidade_html = (
-        plain_to_html(necessidade)
-        if (necessidade or "").strip()
-        else _placeholder("Descrever o problema ou resultado esperado na perspectiva do solicitante.")
-    )
+    payload = draft or {}
+    impacto = payload.get("impacto") if isinstance(payload.get("impacto"), dict) else {}
+    atendimento = payload.get("atendimento") if isinstance(payload.get("atendimento"), dict) else {}
+    evidencias = payload.get("evidencias") if isinstance(payload.get("evidencias"), dict) else {}
+    necessidade_text = str(payload.get("necessidade") or necessidade or "").strip()
     return "".join(
         [
             _h2("Solicitante"),
             _ul(
                 [
-                    _li_text("Nome:"),
-                    _li_text("Organização/área:"),
-                    _li_text("Canal de entrada:"),
+                    _li_text("Nome:", str(payload.get("solicitante_nome") or "")),
+                    _li_text("Organização/área:", str(payload.get("organizacao") or "")),
+                    _li_text("Canal de entrada:", str(payload.get("canal") or "")),
                     _li_text("Data da solicitação:", data),
                 ]
             ),
             _h2("Necessidade"),
-            necessidade_html,
+            _body(
+                necessidade_text,
+                "Descrever o problema ou resultado esperado na perspectiva do solicitante.",
+            ),
             _h2("Cenário atual"),
-            _placeholder("Descrever o que acontece atualmente."),
+            _body(
+                str(payload.get("cenario_atual") or ""),
+                "Descrever o que acontece atualmente.",
+            ),
             _h2("Resultado esperado"),
-            _placeholder(
-                "Descrever o comportamento esperado sem definir prematuramente a solução técnica."
+            _body(
+                str(payload.get("resultado_esperado") or ""),
+                "Descrever o comportamento esperado sem definir prematuramente a solução técnica.",
             ),
             _h2("Impacto"),
             _ul(
                 [
-                    _li_text("Pessoas ou clientes afetados:"),
-                    _li_text("Processo afetado:"),
-                    _li_text("Existe contorno:"),
-                    _li_text("Frequência:"),
-                    _li_text("Consequência:"),
+                    _li_text("Pessoas ou clientes afetados:", str(impacto.get("pessoas") or "")),
+                    _li_text("Processo afetado:", str(impacto.get("processo") or "")),
+                    _li_text("Existe contorno:", str(impacto.get("contorno") or "")),
+                    _li_text("Frequência:", str(impacto.get("frequencia") or "")),
+                    _li_text("Consequência:", str(impacto.get("consequencia") or "")),
                 ]
             ),
             _h2("Evidências"),
             _ul(
                 [
-                    _li_text("Links:"),
-                    _li_text("Screenshots:"),
-                    _li_text("Vídeos:"),
-                    _li_text("Logs:"),
-                    _li_text("Documentos:"),
+                    _li_text("Links:", str(evidencias.get("links") or "")),
+                    _li_text("Screenshots:", str(evidencias.get("screenshots") or "")),
+                    _li_text("Vídeos:", str(evidencias.get("videos") or "")),
+                    _li_text("Logs:", str(evidencias.get("logs") or "")),
+                    _li_text("Documentos:", str(evidencias.get("documentos") or "")),
                 ]
             ),
             _h2("Contexto adicional"),
-            _placeholder("Informações necessárias para reprodução, análise ou decisão."),
+            _body(
+                str(payload.get("contexto_adicional") or ""),
+                "Informações necessárias para reprodução, análise ou decisão.",
+            ),
             _h2("Atendimento"),
             _ul(
                 [
-                    _li_text("Responsável pela comunicação:"),
-                    _li_text("SLA:"),
-                    _li_text("Prazo solicitado:"),
+                    _li_text("Responsável pela comunicação:", responsavel or ""),
+                    _li_text("SLA:", str(atendimento.get("sla") or "")),
+                    _li_text("Prazo solicitado:", str(atendimento.get("prazo") or "")),
                     _li_text("Próxima atualização:"),
                 ]
             ),

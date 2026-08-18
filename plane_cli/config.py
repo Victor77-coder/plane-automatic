@@ -139,7 +139,7 @@ def resolve_llm(cfg: Config) -> LlmSettings:
             )
         raise ConfigError(
             "Nenhuma chave de LLM. Defina GROQ_API_KEY (recomendado) ou OPENAI_API_KEY no .env. "
-            "A demanda técnica é redigida por IA e não copia o texto do suporte."
+            "O CLI redige o template por IA e não cola o texto cru."
         )
     if not cfg.openai_api_key:
         raise ConfigError("PLANE_LLM_PROVIDER=openai exige OPENAI_API_KEY no .env.")

@@ -119,6 +119,35 @@ titulo, objetivo, tarefas (array de strings), criterios_conclusao (array de stri
 """
 
 
+SUPPORT_SYSTEM_PROMPT = """Você é um analista de suporte redigindo uma demanda de SUPORTE no Plane.
+
+Recebe um relato livre (ticket, conversa, e-mail) e preenche o template de atendimento, na perspectiva do solicitante.
+
+Regras:
+- Escreva em português, claro, sem jargão de implementação.
+- NÃO copie o texto cru. Reformule em seções.
+- NÃO invente links, screenshots, vídeos, logs, documentos, SLAs ou prazos que não estejam no relato.
+- NÃO use [CLIENTE] nem o nome do cliente no título.
+- titulo: curto (até ~90 caracteres), descreve a necessidade.
+- necessidade: o problema ou resultado esperado na visão de quem pediu.
+- cenario_atual: o que acontece hoje.
+- resultado_esperado: comportamento desejado, SEM propor solução técnica.
+- impacto: pessoas, processo, contorno, frequencia, consequencia — só com o que o relato permitir; senão string vazia.
+- contexto_adicional: reprodução, ambiente, recortes úteis.
+- solicitante_nome, organizacao, canal: só se o relato trouxer; senão vazio.
+- atendimento.sla e atendimento.prazo: só se mencionados.
+- evidencias: só preencha um campo se o relato trouxer o fato (URL, nome de arquivo, trecho de log). Caso contrário, deixe string vazia.
+
+Responda SOMENTE um JSON válido, sem markdown, com as chaves:
+titulo, solicitante_nome, organizacao, canal,
+necessidade, cenario_atual, resultado_esperado,
+impacto (objeto com pessoas, processo, contorno, frequencia, consequencia),
+contexto_adicional,
+atendimento (objeto com sla, prazo),
+evidencias (objeto com links, screenshots, videos, logs, documentos).
+"""
+
+
 def normalize_work_draft(data: dict[str, Any]) -> dict[str, Any]:
     criterios = _as_list(data.get("criterios_conclusao") or data.get("criterios"))
     required = ["Evidências da execução estão vinculadas ao item técnico."]
@@ -215,6 +244,70 @@ def draft_work_item(
             settings,
             WORK_SYSTEM_PROMPT,
             "Rascunho da demanda técnica (use só como insumo; não copie):\n"
+            + json.dumps(payload, ensure_ascii=False, indent=2),
+        )
+    )
+
+
+def _text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _obj(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def normalize_support_draft(data: dict[str, Any]) -> dict[str, Any]:
+    impacto = _obj(data.get("impacto"))
+    atendimento = _obj(data.get("atendimento"))
+    evidencias = _obj(data.get("evidencias"))
+    return {
+        "titulo": sanitize_title(data.get("titulo")),
+        "solicitante_nome": _text(data.get("solicitante_nome")),
+        "organizacao": _text(data.get("organizacao")),
+        "canal": _text(data.get("canal")),
+        "necessidade": _text(data.get("necessidade")),
+        "cenario_atual": _text(data.get("cenario_atual")),
+        "resultado_esperado": _text(data.get("resultado_esperado")),
+        "impacto": {
+            "pessoas": _text(impacto.get("pessoas")),
+            "processo": _text(impacto.get("processo")),
+            "contorno": _text(impacto.get("contorno")),
+            "frequencia": _text(impacto.get("frequencia")),
+            "consequencia": _text(impacto.get("consequencia")),
+        },
+        "contexto_adicional": _text(data.get("contexto_adicional")),
+        "atendimento": {
+            "sla": _text(atendimento.get("sla")),
+            "prazo": _text(atendimento.get("prazo")),
+        },
+        "evidencias": {
+            "links": _text(evidencias.get("links")),
+            "screenshots": _text(evidencias.get("screenshots")),
+            "videos": _text(evidencias.get("videos") or evidencias.get("vídeos")),
+            "logs": _text(evidencias.get("logs")),
+            "documentos": _text(evidencias.get("documentos")),
+        },
+    }
+
+
+def draft_support_demand(
+    *,
+    relato: str,
+    titulo: str | None = None,
+    labels: list[str] | None = None,
+    settings: LlmSettings,
+) -> dict[str, Any]:
+    payload = {
+        "relato": relato,
+        "titulo_sugerido": titulo or "",
+        "labels": labels or [],
+    }
+    return normalize_support_draft(
+        _chat_json(
+            settings,
+            SUPPORT_SYSTEM_PROMPT,
+            "Relato livre para demanda de suporte (use só como insumo; não copie):\n"
             + json.dumps(payload, ensure_ascii=False, indent=2),
         )
     )

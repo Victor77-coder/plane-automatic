@@ -1,18 +1,19 @@
 # plane-automatic
 
-CLI para abrir **Intake** no projeto de suporte e **demanda técnica** no board do sistema correspondente, no Plane self-hosted (`https://plane.promaxima.cloud/`).
+CLI para abrir demandas no Plane (`https://plane.promaxima.cloud/`). Os três comandos são independentes: o Intake **não** é o caminho do time de suporte.
 
-Replica o processo do time:
+- **Desenvolvedor, sem demanda de suporte** → `intake create` (fila de Intake; o suporte aprova no Plane). Mesmo template e mesma IA do `suporte create`. Já nasce com a label `aguardando interno`.
+- **Time de suporte** → `suporte create` (work item no board SUPORTE, template preenchido pela IA). Não passa pelo Intake.
+- **Desenvolvedor, demanda de suporte já existe** → `tecnica create --from SUP-453` (board do produto, relação `implements`, sub-item de trabalho).
 
-1. Se **não existe** demanda de suporte → cria um Intake (a aprovação continua manual no Plane).
-2. Se **já existe** demanda de suporte → lê a label do sistema, cria o work item no projeto técnico, liga os dois com `relates_to` e cria um **sub-item de trabalho**.
+O time de suporte usa o **terminal do sistema** (Terminal no macOS, Prompt/PowerShell no Windows). Não precisa de IDE.
 
 ## Pré-requisitos
 
 - Python 3.10+
 - Conta na instância Plane e permissão nos projetos
 - Personal Access Token
-- Chave de LLM (`GROQ_API_KEY` ou `OPENAI_API_KEY`) para redigir a demanda técnica
+- `GROQ_API_KEY` ou `OPENAI_API_KEY` para `intake create`, `suporte create` e `tecnica create`
 
 ### Gerar o token
 
@@ -20,7 +21,9 @@ Replica o processo do time:
 2. **Profile Settings** → **Personal Access Tokens**
 3. Crie um token e copie o valor (`plane_api_...`)
 
-## Instalação
+## Instalação (uma vez)
+
+No terminal, na pasta do projeto:
 
 ```bash
 cd plane-automatic
@@ -30,6 +33,8 @@ pip install -r requirements.txt
 cp .env.example .env
 cp projects.yaml.example projects.yaml
 ```
+
+No Windows, ative o ambiente com `.venv\Scripts\activate`.
 
 Edite o `.env`:
 
@@ -45,14 +50,12 @@ GROQ_API_KEY=
 
 O slug aparece na URL: `https://plane.promaxima.cloud/<slug>/projects/`.
 
-Descubra o UUID do projeto de suporte e dos projetos técnicos:
-
 ```bash
 python -m plane_cli projects
 python -m plane_cli labels
 ```
 
-Preencha `projects.yaml` com o **nome da label** da demanda de suporte (case-insensitive) apontando para o UUID do board técnico:
+`projects.yaml` é só para `tecnica create`: mapeia a **label** da demanda de suporte (case-insensitive) para o UUID do board técnico.
 
 ```yaml
 produto:fontedeprecos: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -60,11 +63,18 @@ produto:cotacoesgov: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 produto:controlegov: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 ```
 
-As chaves precisam coincidir com as labels usadas no projeto de suporte. `python -m plane_cli labels` lista os nomes exatos.
+As chaves precisam coincidir com as labels do projeto de suporte. `python -m plane_cli labels` lista os nomes exatos.
 
-## Comandos
+### Uso no dia a dia
 
-### Helpers
+```bash
+cd plane-automatic
+source .venv/bin/activate
+```
+
+A saída dos `create` é JSON no stdout (id, sequence, url). Erros e avisos vão para stderr.
+
+## Helpers
 
 ```bash
 python -m plane_cli projects
@@ -74,25 +84,80 @@ python -m plane_cli states
 python -m plane_cli states --project-id <uuid>
 ```
 
-### Fluxo 1 — sem demanda de suporte (Intake)
+## Desenvolvedor — Intake
+
+Quando **não há** demanda de suporte. Abre na fila de Intake para o suporte aprovar no Plane. A IA redige o **mesmo template** do `suporte create`; o texto cru **não é colado**.
 
 ```bash
 python -m plane_cli intake create \
-  --title "Erro ao gerar PDF" \
-  --description "Cliente X, ambiente prod" \
+  --description "Cliente não consegue aplicar preços de cotação parcial" \
+  --label produto:cotacoesgov \
   --priority high
 ```
 
-Cria o Intake no projeto de suporte **já com o template da demanda de suporte** (Solicitante, Necessidade, Cenário atual, Resultado esperado, Impacto, Evidências, Contexto, Atendimento). `--description` preenche a seção **Necessidade**; a data da solicitação entra como hoje. A aprovação continua manual no Plane. **Não** cria sub-item de trabalho.
+O CLI:
 
-### Fluxo 2 — demanda de suporte já existe (técnica + trabalho)
+1. Pede à IA o título e as seções (Solicitante, Necessidade, Cenário atual, Resultado esperado, Impacto, Contexto, Atendimento)
+2. Preenche a **data da solicitação** com o dia de hoje
+3. Deixa **Evidências** em branco, salvo se o relato trouxer o fato
+4. Aplica a label `aguardando interno` sozinha
+5. Aplica `--label` extra (repetível; aceita o nome, ex. `produto:cotacoesgov`)
+
+`--description` ou `--description-file` é obrigatório. `--title` é opcional; se omitir, a IA redige o título (sem `[CLIENTE]`). Sem chave de LLM, o comando falha.
+
+Se a label `aguardando interno` não existir no projeto SUPORTE, o CLI avisa e cria o Intake mesmo assim. Se não houver `produto:...`, avisa (a demanda técnica depois depende disso) mas não bloqueia.
+
+Overrides depois da IA (iguais ao `suporte create`): `--necessidade`, `--cenario`, `--resultado`, `--solicitante-nome`, `--organizacao`, `--canal`.
+
+## Time de suporte — board SUPORTE
+
+Cria o work item **já no board**. Não passa pelo Intake. Usa o mesmo template e a mesma IA do `intake create`; o texto cru **não é colado**.
+
+```bash
+python -m plane_cli suporte create \
+  --description "Cliente não consegue aplicar preços de cotação parcial" \
+  --label produto:cotacoesgov \
+  --priority high
+```
+
+O CLI:
+
+1. Pede à IA o título e as seções (Solicitante, Necessidade, Cenário atual, Resultado esperado, Impacto, Contexto, Atendimento)
+2. Preenche a **data da solicitação** com o dia de hoje
+3. Deixa **Evidências** em branco, salvo se o relato trouxer o fato (link, log, etc.)
+4. Atribui o **responsável** à pessoa do token (criado por)
+5. Aplica as labels (`--label` repetível; aceita o nome, ex. `produto:cotacoesgov`)
+
+`--description` ou `--description-file` é obrigatório. `--title` é opcional; se omitir, a IA redige o título (sem `[CLIENTE]`). Sem chave de LLM, o comando falha.
+
+Se não houver label `produto:...`, o CLI avisa (a demanda técnica depois depende disso) mas não bloqueia.
+
+Overrides depois da IA (só se você passar a flag):
+
+```bash
+python -m plane_cli suporte create \
+  --description-file ./relato.txt \
+  --title "Aplicar preços de cotação parcial" \
+  --label produto:cotacoesgov \
+  --necessidade "Permitir aplicar preços mesmo com cotação parcial" \
+  --cenario "Hoje a tela bloqueia quando falta item" \
+  --resultado "Aplicar os itens já cotados e seguir o restante depois" \
+  --solicitante-nome "Maria" \
+  --organizacao "Cliente X" \
+  --canal "e-mail" \
+  --priority high
+```
+
+## Desenvolvedor — demanda técnica
+
+Quando a demanda de suporte **já existe**.
 
 ```bash
 python -m plane_cli tecnica create --from SUPORTE-123 \
   --trabalho "Corrigir timeout no service_cpe e documentar o fallback"
 ```
 
-`--from` aceita a chave (`SUPORTE-123`) ou o UUID da demanda de suporte.
+`--from` aceita a chave (`SUPORTE-123`) ou o UUID.
 
 O CLI:
 
@@ -104,7 +169,7 @@ O CLI:
 6. Tenta a relação nativa `implements`; se a API não aceitar, cai para `relates_to` e, por último, um link
 7. Pede à IA um **sub-item Trabalho** a partir da demanda técnica (não copia o texto): título de implementação, Objetivo, lista de tarefas, critérios de conclusão, evidências em branco e planejamento (responsável = criado por)
 
-`--title` e `--trabalho-title` sobrescrevem os títulos gerados. `--description` e `--solucao` sobrescrevem **depois** da IA as seções Problema técnico e Solução proposta. `--trabalho` é orientação extra para a IA do sub-item, não o corpo final. Sem `GROQ_API_KEY` nem `OPENAI_API_KEY`, o comando falha (não cola o texto do suporte).
+`--title` e `--trabalho-title` sobrescrevem os títulos gerados. `--description` e `--solucao` sobrescrevem **depois** da IA as seções Problema técnico e Solução proposta. `--trabalho` é orientação extra para a IA do sub-item, não o corpo final. Sem chave de LLM, o comando falha.
 
 Se o sub-item falhar, a demanda técnica permanece; o CLI imprime a URL e o erro.
 
@@ -122,8 +187,6 @@ python -m plane_cli tecnica create --from SUPORTE-123 \
 ```
 
 Se várias labels da demanda mapearem para projetos diferentes, o comando falha e pede `--project-id`. Se nenhuma label bater com `projects.yaml`, lista as labels encontradas.
-
-A saída de `intake create` e `tecnica create` é JSON no stdout (id, sequence, url). Erros vão para stderr.
 
 ## Estrutura
 

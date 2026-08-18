@@ -7,8 +7,14 @@ from typing import Any
 import click
 
 from plane_cli.client import PlaneAPIError, PlaneClient
-from plane_cli.config import Config, ConfigError, load_config, resolve_llm
-from plane_cli.llm import LlmError, draft_technical_demand, draft_work_item, sanitize_title
+from plane_cli.config import Config, ConfigError, LlmSettings, load_config, resolve_llm
+from plane_cli.llm import (
+    LlmError,
+    draft_support_demand,
+    draft_technical_demand,
+    draft_work_item,
+    sanitize_title,
+)
 from plane_cli.mapping import MappingError, load_projects_map, resolve_tech_project
 from plane_cli.templates import (
     RELATION_IMPLEMENTS,
@@ -19,6 +25,7 @@ from plane_cli.templates import (
 )
 
 PRIORITIES = ["urgent", "high", "medium", "low", "none"]
+INTAKE_WAITING_LABEL = "aguardando interno"
 
 
 class Abort(click.ClickException):
@@ -47,9 +54,65 @@ def client_from(cfg: Config) -> PlaneClient:
     return PlaneClient(cfg.base_url, cfg.api_key, cfg.workspace_slug)
 
 
+def llm_or_abort(cfg: Config) -> LlmSettings:
+    try:
+        return resolve_llm(cfg)
+    except ConfigError as exc:
+        raise Abort(str(exc)) from exc
+
+
+def require_relato(description: str | None, description_file: str | None) -> str:
+    relato = text_from_options(description, description_file)
+    if not (relato or "").strip():
+        raise Abort("Informe --description ou --description-file com o relato da demanda.")
+    return relato.strip()
+
+
+def draft_support_from_relato(
+    *,
+    relato: str,
+    title: str | None,
+    labels: tuple[str, ...] | list[str],
+    necessidade: str | None,
+    cenario: str | None,
+    resultado: str | None,
+    solicitante_nome: str | None,
+    organizacao: str | None,
+    canal: str | None,
+    llm_settings: LlmSettings,
+) -> dict[str, Any]:
+    click.echo(f"Redigindo demanda de suporte com {llm_settings.provider}...", err=True)
+    try:
+        draft = draft_support_demand(
+            relato=relato,
+            titulo=title,
+            labels=list(labels),
+            settings=llm_settings,
+        )
+    except LlmError as exc:
+        raise Abort(str(exc)) from exc
+    if necessidade:
+        draft["necessidade"] = necessidade.strip()
+    if cenario:
+        draft["cenario_atual"] = cenario.strip()
+    if resultado:
+        draft["resultado_esperado"] = resultado.strip()
+    if solicitante_nome:
+        draft["solicitante_nome"] = solicitante_nome.strip()
+    if organizacao:
+        draft["organizacao"] = organizacao.strip()
+    if canal:
+        draft["canal"] = canal.strip()
+    name = sanitize_title(title) or sanitize_title(draft.get("titulo"))
+    if not name:
+        raise Abort("Não foi possível definir o título da demanda de suporte.")
+    draft["titulo"] = name
+    return draft
+
+
 @click.group()
 def cli() -> None:
-    """Abre Intake de suporte e demandas técnicas no Plane."""
+    """Abre demandas de suporte e técnicas no Plane a partir do terminal."""
 
 
 @cli.command("projects")
@@ -111,35 +174,217 @@ def states_cmd(project_id: str | None) -> None:
 
 @cli.group("intake")
 def intake_group() -> None:
-    """Intake no projeto de suporte (quando ainda não há demanda)."""
+    """Intake no projeto de suporte (desenvolvedor, quando não há demanda)."""
 
 
 @intake_group.command("create")
-@click.option("--title", required=True, help="Título do Intake.")
-@click.option("--description", default=None, help="Texto da seção Necessidade.")
+@click.option("--title", default=None, help="Sobrescreve o título gerado pela IA.")
+@click.option("--description", default=None, help="Relato livre usado como insumo da IA.")
 @click.option("--description-file", type=click.Path(exists=True, dir_okay=False), default=None)
 @click.option("--priority", type=click.Choice(PRIORITIES, case_sensitive=False), default="none")
+@click.option(
+    "--label",
+    "labels",
+    multiple=True,
+    help="Nome ou UUID da label (repetível). Use produto:<sistema>.",
+)
+@click.option("--necessidade", default=None, help="Sobrescreve a seção Necessidade depois da IA.")
+@click.option("--cenario", default=None, help="Sobrescreve a seção Cenário atual depois da IA.")
+@click.option("--resultado", default=None, help="Sobrescreve a seção Resultado esperado depois da IA.")
+@click.option("--solicitante-nome", default=None, help="Sobrescreve o nome do solicitante.")
+@click.option("--organizacao", default=None, help="Sobrescreve organização/área.")
+@click.option("--canal", default=None, help="Sobrescreve o canal de entrada.")
 def intake_create(
-    title: str,
+    title: str | None,
     description: str | None,
     description_file: str | None,
     priority: str,
+    labels: tuple[str, ...],
+    necessidade: str | None,
+    cenario: str | None,
+    resultado: str | None,
+    solicitante_nome: str | None,
+    organizacao: str | None,
+    canal: str | None,
 ) -> None:
-    """Cria um Intake no projeto de suporte com o template da demanda de suporte."""
+    """Cria um Intake no projeto de suporte com o mesmo template da demanda de suporte."""
     cfg = load_or_abort(require_support_project=True)
-    body = text_from_options(description, description_file)
+    relato = require_relato(description, description_file)
+    llm_settings = llm_or_abort(cfg)
     try:
         with client_from(cfg) as client:
             project = client.get_project(cfg.support_project_id)
+            project_labels = client.list_labels(cfg.support_project_id)
+            label_ids, label_names = resolve_label_ids(labels, project_labels)
+            waiting_ids, _waiting_names = resolve_label_ids(
+                (INTAKE_WAITING_LABEL,),
+                project_labels,
+                strict=False,
+            )
+            if not waiting_ids:
+                click.echo(
+                    f"Aviso: label '{INTAKE_WAITING_LABEL}' não encontrada no projeto "
+                    "SUPORTE. Crie-a no Plane. O Intake será aberto sem a label.",
+                    err=True,
+                )
+            for label_id in waiting_ids:
+                if label_id not in label_ids:
+                    label_ids.append(label_id)
+            if not any(name.lower().startswith("produto:") for name in label_names):
+                click.echo(
+                    "Aviso: nenhuma label produto:... — a demanda técnica depois depende disso.",
+                    err=True,
+                )
+            current_user = client.me()
+            responsavel_nome = client.user_display_name(current_user)
+            draft = draft_support_from_relato(
+                relato=relato,
+                title=title,
+                labels=labels,
+                necessidade=necessidade,
+                cenario=cenario,
+                resultado=resultado,
+                solicitante_nome=solicitante_nome,
+                organizacao=organizacao,
+                canal=canal,
+                llm_settings=llm_settings,
+            )
             item = client.create_intake(
                 cfg.support_project_id,
-                name=title,
-                description_html=support_demand_html(necessidade=body),
+                name=str(draft["titulo"]),
+                description_html=support_demand_html(
+                    draft=draft,
+                    responsavel=responsavel_nome,
+                ),
                 priority=priority.lower(),
+                labels=label_ids or None,
             )
             emit(client.summarize(cfg.support_project_id, item, project))
     except PlaneAPIError as exc:
         raise Abort(str(exc)) from exc
+
+
+def resolve_label_ids(
+    requested: tuple[str, ...],
+    project_labels: list[dict[str, Any]],
+    *,
+    strict: bool = True,
+) -> tuple[list[str], list[str]]:
+    by_name = {
+        str(label.get("name") or "").strip().lower(): label for label in project_labels
+    }
+    by_id = {str(label.get("id") or ""): label for label in project_labels if label.get("id")}
+    ids: list[str] = []
+    names: list[str] = []
+    missing: list[str] = []
+    for raw in requested:
+        key = raw.strip()
+        if not key:
+            continue
+        match = by_id.get(key) or by_name.get(key.lower())
+        if not match:
+            missing.append(raw)
+            continue
+        label_id = str(match.get("id") or "")
+        if label_id and label_id not in ids:
+            ids.append(label_id)
+            names.append(str(match.get("name") or key))
+    if missing and strict:
+        available = ", ".join(
+            sorted(str(label.get("name") or "") for label in project_labels if label.get("name"))
+        )
+        raise Abort(
+            "Label(s) não encontrada(s): "
+            + ", ".join(missing)
+            + (f". Disponíveis: {available}" if available else ".")
+        )
+    return ids, names
+
+
+@cli.group("suporte")
+def suporte_group() -> None:
+    """Demanda de suporte no board SUPORTE (já com template)."""
+
+
+@suporte_group.command("create")
+@click.option("--title", default=None, help="Sobrescreve o título gerado pela IA.")
+@click.option("--description", default=None, help="Relato livre usado como insumo da IA.")
+@click.option("--description-file", type=click.Path(exists=True, dir_okay=False), default=None)
+@click.option("--priority", type=click.Choice(PRIORITIES, case_sensitive=False), default="none")
+@click.option(
+    "--label",
+    "labels",
+    multiple=True,
+    help="Nome ou UUID da label (repetível). Use produto:<sistema>.",
+)
+@click.option("--necessidade", default=None, help="Sobrescreve a seção Necessidade depois da IA.")
+@click.option("--cenario", default=None, help="Sobrescreve a seção Cenário atual depois da IA.")
+@click.option("--resultado", default=None, help="Sobrescreve a seção Resultado esperado depois da IA.")
+@click.option("--solicitante-nome", default=None, help="Sobrescreve o nome do solicitante.")
+@click.option("--organizacao", default=None, help="Sobrescreve organização/área.")
+@click.option("--canal", default=None, help="Sobrescreve o canal de entrada.")
+def suporte_create(
+    title: str | None,
+    description: str | None,
+    description_file: str | None,
+    priority: str,
+    labels: tuple[str, ...],
+    necessidade: str | None,
+    cenario: str | None,
+    resultado: str | None,
+    solicitante_nome: str | None,
+    organizacao: str | None,
+    canal: str | None,
+) -> None:
+    """Cria um work item no board de suporte com o template preenchido pela IA."""
+    cfg = load_or_abort(require_support_project=True)
+    relato = require_relato(description, description_file)
+    llm_settings = llm_or_abort(cfg)
+
+    client = client_from(cfg)
+    try:
+        project = client.get_project(cfg.support_project_id)
+        project_labels = client.list_labels(cfg.support_project_id)
+        label_ids, label_names = resolve_label_ids(labels, project_labels)
+        if not any(name.lower().startswith("produto:") for name in label_names):
+            click.echo(
+                "Aviso: nenhuma label produto:... — a demanda técnica depois depende disso.",
+                err=True,
+            )
+
+        current_user = client.me()
+        creator_id = str(current_user.get("id") or "")
+        responsavel_nome = client.user_display_name(current_user)
+        draft = draft_support_from_relato(
+            relato=relato,
+            title=title,
+            labels=labels,
+            necessidade=necessidade,
+            cenario=cenario,
+            resultado=resultado,
+            solicitante_nome=solicitante_nome,
+            organizacao=organizacao,
+            canal=canal,
+            llm_settings=llm_settings,
+        )
+
+        item = client.create_work_item(
+            cfg.support_project_id,
+            name=str(draft["titulo"]),
+            description_html=support_demand_html(
+                draft=draft,
+                responsavel=responsavel_nome,
+            ),
+            priority=priority.lower(),
+            labels=label_ids or None,
+            created_by=creator_id or None,
+            assignees=[creator_id] if creator_id else None,
+        )
+        emit(client.summarize(cfg.support_project_id, item, project))
+    except PlaneAPIError as exc:
+        raise Abort(str(exc)) from exc
+    finally:
+        client.close()
 
 
 @cli.group("tecnica")

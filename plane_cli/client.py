@@ -269,6 +269,7 @@ class PlaneClient:
         name: str,
         description_html: str,
         priority: str,
+        labels: list[str] | None = None,
     ) -> dict[str, Any]:
         payload = {
             "issue": {
@@ -277,6 +278,8 @@ class PlaneClient:
                 "priority": priority,
             }
         }
+        if labels:
+            payload["issue"]["labels"] = labels
         data = self._post(self._project_path(project_id, "intake-issues/"), payload)
         return extract_issue(data)
 
