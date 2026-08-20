@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 import httpx
@@ -190,18 +191,34 @@ def _chat_json(
         ],
     }
     url = f"{settings.base_url.rstrip('/')}/chat/completions"
-    try:
-        response = httpx.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {settings.api_key}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-            timeout=60.0,
-        )
-    except httpx.HTTPError as exc:
-        raise LlmError(f"Falha ao chamar {settings.provider}: {exc}") from exc
+    last_error: Exception | None = None
+    response: httpx.Response | None = None
+    for attempt in range(3):
+        try:
+            response = httpx.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {settings.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=60.0,
+            )
+        except httpx.HTTPError as exc:
+            last_error = exc
+            if attempt == 2:
+                raise LlmError(f"Falha ao chamar {settings.provider}: {exc}") from exc
+            time.sleep(0.5 * (attempt + 1))
+            continue
+        if response.status_code >= 500 and attempt < 2:
+            last_error = LlmError(
+                f"LLM {settings.provider} {response.status_code}: {response.text[:500]}"
+            )
+            time.sleep(0.5 * (attempt + 1))
+            continue
+        break
+    if response is None:
+        raise LlmError(f"Falha ao chamar {settings.provider}: {last_error}")
 
     if response.status_code >= 400:
         raise LlmError(
