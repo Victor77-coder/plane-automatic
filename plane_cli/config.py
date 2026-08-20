@@ -16,7 +16,7 @@ UUID_RE = re.compile(
 
 
 def _find_env_path() -> Path | None:
-    for candidate in (Path.cwd() / ".env", ROOT / ".env", ROOT.parent / ".env"):
+    for candidate in (Path.cwd() / ".env", ROOT / ".env"):
         if candidate.is_file():
             return candidate
     return None
@@ -68,6 +68,7 @@ class Config:
     groq_model: str
     openai_api_key: str
     openai_model: str
+    openai_base_url: str
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,7 @@ def load_config(*, require_support_project: bool = False) -> Config:
     if not workspace:
         raise ConfigError(
             "PLANE_WORKSPACE_SLUG não definido. É o slug da URL "
-            "(https://plane.promaxima.cloud/<slug>/projects/)."
+            "(https://<sua-instancia>/<slug>/projects/)."
         )
 
     support_project_id = normalize_project_id(env.str("PLANE_SUPPORT_PROJECT_ID", default=""))
@@ -106,7 +107,7 @@ def load_config(*, require_support_project: bool = False) -> Config:
         )
 
     return Config(
-        base_url=env.str("PLANE_BASE_URL", default="https://plane.promaxima.cloud").rstrip("/"),
+        base_url=env.str("PLANE_BASE_URL", default="https://api.plane.so").rstrip("/"),
         api_key=api_key,
         workspace_slug=workspace,
         support_project_id=support_project_id,
@@ -117,6 +118,10 @@ def load_config(*, require_support_project: bool = False) -> Config:
         or "llama-3.3-70b-versatile",
         openai_api_key=env.str("OPENAI_API_KEY", default="").strip(),
         openai_model=env.str("OPENAI_MODEL", default="gpt-4o-mini").strip() or "gpt-4o-mini",
+        openai_base_url=(
+            env.str("OPENAI_BASE_URL", default="https://api.openai.com/v1").strip().rstrip("/")
+            or "https://api.openai.com/v1"
+        ),
     )
 
 
@@ -135,7 +140,7 @@ def resolve_llm(cfg: Config) -> LlmSettings:
                 provider="openai",
                 api_key=cfg.openai_api_key,
                 model=cfg.openai_model,
-                base_url="https://api.openai.com/v1",
+                base_url=cfg.openai_base_url,
             )
         raise ConfigError(
             "Nenhuma chave de LLM. Defina GROQ_API_KEY (recomendado) ou OPENAI_API_KEY no .env. "
@@ -147,5 +152,5 @@ def resolve_llm(cfg: Config) -> LlmSettings:
         provider="openai",
         api_key=cfg.openai_api_key,
         model=cfg.openai_model,
-        base_url="https://api.openai.com/v1",
+        base_url=cfg.openai_base_url,
     )
