@@ -23,8 +23,8 @@ dev = ["pytest>=8.0.0,<9"]
 [project.scripts]
 plane-cli = "plane_cli.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["plane_cli*"]
+[tool.setuptools]
+packages = ["plane_cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

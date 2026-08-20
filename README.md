@@ -41,7 +41,7 @@ O suporte **não** precisa de `projects.yaml`. Só o `.env` (token do Plane, URL
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+python -m pip install .
 Copy-Item .env.example .env
 ```
 
@@ -59,7 +59,7 @@ O prompt deve ficar `(.venv) PS C:\...\plane-automatic>`. Depois dá para usar `
 cd plane-automatic
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install .
 cp .env.example .env
 ```
 
