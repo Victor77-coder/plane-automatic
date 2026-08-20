@@ -44,6 +44,36 @@ def is_uuid(value: str) -> bool:
         return bool(UUID_RE.match(str(value or "")))
 
 
+def identifiers_compatible(requested: str, project_identifier: str) -> bool:
+    """Aceita igualdade ou prefixo (SUP vs SUPORTE). Rejeita FOO vs SUPORTE."""
+    left = requested.strip().lower()
+    right = str(project_identifier or "").strip().lower()
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if min(len(left), len(right)) < 3:
+        return False
+    return left.startswith(right) or right.startswith(left)
+
+
+def identifier_lookup_keys(
+    requested: str, project_identifier: str, sequence_id: int
+) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for ident in (project_identifier, requested):
+        ident = str(ident or "").strip()
+        if not ident:
+            continue
+        key = f"{ident}-{sequence_id}"
+        marker = key.lower()
+        if marker not in seen:
+            seen.add(marker)
+            keys.append(key)
+    return keys
+
+
 def parse_issue_key(value: str) -> tuple[str, int] | None:
     raw = value.strip()
     match = ISSUE_KEY_RE.match(raw)
@@ -245,13 +275,70 @@ class PlaneClient:
             raise PlaneAPIError(
                 f"Identificador inválido: {item_ref!r}. Use um UUID ou a chave do chamado (ex.: SUP-123)."
             )
-        _identifier, sequence_id = parsed
-        for item in self._list_work_items(project_id):
-            if int(item.get("sequence_id") or 0) == sequence_id:
-                return self.retrieve_work_item(project_id, str(item["id"]))
+        identifier, sequence_id = parsed
+        project = self.get_project(project_id)
+        project_identifier = str(project.get("identifier") or "")
+        if project_identifier and not identifiers_compatible(identifier, project_identifier):
+            raise PlaneAPIError(
+                f"A chave {item_ref} não pertence ao projeto {project_identifier} "
+                f"(prefixo informado: {identifier})."
+            )
+        for key in identifier_lookup_keys(identifier, project_identifier, sequence_id):
+            found = self._retrieve_by_identifier_key(key)
+            if found and found.get("id"):
+                return self.retrieve_work_item(project_id, str(found["id"]))
+        item_id = self._find_work_item_id_by_sequence(project_id, sequence_id)
+        if item_id:
+            return self.retrieve_work_item(project_id, item_id)
         raise PlaneAPIError(
             f"Work item {item_ref} não encontrado no projeto {project_id}."
         )
+
+    def _retrieve_by_identifier_key(self, key: str) -> dict[str, Any] | None:
+        for segment in ("work-items", "issues"):
+            try:
+                data = self._get(self._workspace_path(f"{segment}/{key}/"))
+            except PlaneAPIError as exc:
+                if exc.status_code in (400, 404):
+                    continue
+                raise
+            try:
+                return extract_issue(data)
+            except PlaneAPIError:
+                continue
+        return None
+
+    def _find_work_item_id_by_sequence(self, project_id: str, sequence_id: int) -> str | None:
+        for segment in (self._item_segment, "issues"):
+            if segment != self._item_segment and self._item_segment == "issues":
+                continue
+            try:
+                data = self._get(
+                    self._project_path(project_id, f"{segment}/"),
+                    params={"sequence_id": sequence_id, "per_page": 20},
+                )
+            except PlaneAPIError as exc:
+                if exc.status_code == 404:
+                    continue
+                raise
+            self._item_segment = segment
+            items = data if isinstance(data, list) else _results(data)
+            matches = [
+                item
+                for item in items
+                if int(item.get("sequence_id") or 0) == sequence_id and item.get("id")
+            ]
+            if matches:
+                return str(matches[0]["id"])
+            sequences = {int(item.get("sequence_id") or 0) for item in items}
+            filter_ignored = bool(items) and (len(items) >= 20 or len(sequences) > 1)
+            if not filter_ignored:
+                return None
+            break
+        for item in self._list_work_items(project_id):
+            if int(item.get("sequence_id") or 0) == sequence_id and item.get("id"):
+                return str(item["id"])
+        return None
 
     def _list_work_items(self, project_id: str) -> list[dict[str, Any]]:
         try:
@@ -270,6 +357,7 @@ class PlaneClient:
         description_html: str,
         priority: str,
         labels: list[str] | None = None,
+        assignees: list[str] | None = None,
     ) -> dict[str, Any]:
         payload = {
             "issue": {
@@ -280,6 +368,8 @@ class PlaneClient:
         }
         if labels:
             payload["issue"]["labels"] = labels
+        if assignees:
+            payload["issue"]["assignees"] = assignees
         data = self._post(self._project_path(project_id, "intake-issues/"), payload)
         return extract_issue(data)
 
@@ -317,8 +407,10 @@ class PlaneClient:
             if assignees and exc.status_code in (400, 403):
                 payload.pop("assignees", None)
                 data = self._try_item_paths("POST", project_id, "", json=payload)
-            else:
-                raise
+                item = extract_issue(data)
+                item["_assignees_dropped"] = True
+                return item
+            raise
         return extract_issue(data)
 
     def create_relation(
