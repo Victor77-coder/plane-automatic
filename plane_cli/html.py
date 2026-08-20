@@ -116,5 +116,5 @@ def as_html(value: str | None) -> str | None:
     if not raw or is_placeholder(raw):
         return None
     if re.search(r"<[a-z][\s\S]*>", raw, flags=re.I):
-        return raw
+        raw = html_to_plain(raw)
     return plain_to_html(raw)
