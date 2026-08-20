@@ -37,6 +37,51 @@ def emit(data: Any) -> None:
     click.echo(json.dumps(data, ensure_ascii=False, indent=2, default=str))
 
 
+def warn_assignees_dropped(item: dict[str, Any]) -> None:
+    if item.get("_assignees_dropped"):
+        click.echo(
+            "Aviso: a API recusou assignees; o item foi criado sem responsável.",
+            err=True,
+        )
+
+
+def support_draft_options(func: Any) -> Any:
+    options = [
+        click.option("--title", default=None, help="Sobrescreve o título gerado pela IA."),
+        click.option("--description", default=None, help="Relato livre usado como insumo da IA."),
+        click.option(
+            "--description-file",
+            type=click.Path(exists=True, dir_okay=False),
+            default=None,
+        ),
+        click.option(
+            "--priority",
+            type=click.Choice(PRIORITIES, case_sensitive=False),
+            default="none",
+        ),
+        click.option(
+            "--label",
+            "labels",
+            multiple=True,
+            help="Nome ou UUID da label (repetível). Use produto:<sistema>.",
+        ),
+        click.option("--necessidade", default=None, help="Sobrescreve a seção Necessidade depois da IA."),
+        click.option("--cenario", default=None, help="Sobrescreve a seção Cenário atual depois da IA."),
+        click.option("--resultado", default=None, help="Sobrescreve a seção Resultado esperado depois da IA."),
+        click.option("--solicitante-nome", default=None, help="Sobrescreve o nome do solicitante."),
+        click.option("--organizacao", default=None, help="Sobrescreve organização/área."),
+        click.option("--canal", default=None, help="Sobrescreve o canal de entrada."),
+        click.option(
+            "--dry-run",
+            is_flag=True,
+            help="Redige o template e não cria o item no Plane.",
+        ),
+    ]
+    for option in reversed(options):
+        func = option(func)
+    return func
+
+
 def text_from_options(value: str | None, file: str | None) -> str | None:
     if file:
         return Path(file).read_text(encoding="utf-8")
@@ -178,22 +223,7 @@ def intake_group() -> None:
 
 
 @intake_group.command("create")
-@click.option("--title", default=None, help="Sobrescreve o título gerado pela IA.")
-@click.option("--description", default=None, help="Relato livre usado como insumo da IA.")
-@click.option("--description-file", type=click.Path(exists=True, dir_okay=False), default=None)
-@click.option("--priority", type=click.Choice(PRIORITIES, case_sensitive=False), default="none")
-@click.option(
-    "--label",
-    "labels",
-    multiple=True,
-    help="Nome ou UUID da label (repetível). Use produto:<sistema>.",
-)
-@click.option("--necessidade", default=None, help="Sobrescreve a seção Necessidade depois da IA.")
-@click.option("--cenario", default=None, help="Sobrescreve a seção Cenário atual depois da IA.")
-@click.option("--resultado", default=None, help="Sobrescreve a seção Resultado esperado depois da IA.")
-@click.option("--solicitante-nome", default=None, help="Sobrescreve o nome do solicitante.")
-@click.option("--organizacao", default=None, help="Sobrescreve organização/área.")
-@click.option("--canal", default=None, help="Sobrescreve o canal de entrada.")
+@support_draft_options
 def intake_create(
     title: str | None,
     description: str | None,
@@ -206,6 +236,7 @@ def intake_create(
     solicitante_nome: str | None,
     organizacao: str | None,
     canal: str | None,
+    dry_run: bool,
 ) -> None:
     """Cria um Intake no projeto de suporte com o mesmo template da demanda de suporte."""
     cfg = load_or_abort(require_support_project=True)
@@ -236,6 +267,7 @@ def intake_create(
                     err=True,
                 )
             current_user = client.me()
+            creator_id = str(current_user.get("id") or "")
             responsavel_nome = client.user_display_name(current_user)
             draft = draft_support_from_relato(
                 relato=relato,
@@ -249,15 +281,28 @@ def intake_create(
                 canal=canal,
                 llm_settings=llm_settings,
             )
+            description_html = support_demand_html(
+                draft=draft,
+                responsavel=responsavel_nome,
+            )
+            if dry_run:
+                click.echo("Dry-run: nenhum item foi criado no Plane.", err=True)
+                emit(
+                    {
+                        "dry_run": True,
+                        "kind": "intake",
+                        "name": draft["titulo"],
+                        "description_html": description_html,
+                    }
+                )
+                return
             item = client.create_intake(
                 cfg.support_project_id,
                 name=str(draft["titulo"]),
-                description_html=support_demand_html(
-                    draft=draft,
-                    responsavel=responsavel_nome,
-                ),
+                description_html=description_html,
                 priority=priority.lower(),
                 labels=label_ids or None,
+                assignees=[creator_id] if creator_id else None,
             )
             emit(client.summarize(cfg.support_project_id, item, project))
     except PlaneAPIError as exc:
@@ -307,22 +352,7 @@ def suporte_group() -> None:
 
 
 @suporte_group.command("create")
-@click.option("--title", default=None, help="Sobrescreve o título gerado pela IA.")
-@click.option("--description", default=None, help="Relato livre usado como insumo da IA.")
-@click.option("--description-file", type=click.Path(exists=True, dir_okay=False), default=None)
-@click.option("--priority", type=click.Choice(PRIORITIES, case_sensitive=False), default="none")
-@click.option(
-    "--label",
-    "labels",
-    multiple=True,
-    help="Nome ou UUID da label (repetível). Use produto:<sistema>.",
-)
-@click.option("--necessidade", default=None, help="Sobrescreve a seção Necessidade depois da IA.")
-@click.option("--cenario", default=None, help="Sobrescreve a seção Cenário atual depois da IA.")
-@click.option("--resultado", default=None, help="Sobrescreve a seção Resultado esperado depois da IA.")
-@click.option("--solicitante-nome", default=None, help="Sobrescreve o nome do solicitante.")
-@click.option("--organizacao", default=None, help="Sobrescreve organização/área.")
-@click.option("--canal", default=None, help="Sobrescreve o canal de entrada.")
+@support_draft_options
 def suporte_create(
     title: str | None,
     description: str | None,
@@ -335,6 +365,7 @@ def suporte_create(
     solicitante_nome: str | None,
     organizacao: str | None,
     canal: str | None,
+    dry_run: bool,
 ) -> None:
     """Cria um work item no board de suporte com o template preenchido pela IA."""
     cfg = load_or_abort(require_support_project=True)
@@ -367,19 +398,32 @@ def suporte_create(
             canal=canal,
             llm_settings=llm_settings,
         )
+        description_html = support_demand_html(
+            draft=draft,
+            responsavel=responsavel_nome,
+        )
+        if dry_run:
+            click.echo("Dry-run: nenhum item foi criado no Plane.", err=True)
+            emit(
+                {
+                    "dry_run": True,
+                    "kind": "suporte",
+                    "name": draft["titulo"],
+                    "description_html": description_html,
+                }
+            )
+            return
 
         item = client.create_work_item(
             cfg.support_project_id,
             name=str(draft["titulo"]),
-            description_html=support_demand_html(
-                draft=draft,
-                responsavel=responsavel_nome,
-            ),
+            description_html=description_html,
             priority=priority.lower(),
             labels=label_ids or None,
             created_by=creator_id or None,
             assignees=[creator_id] if creator_id else None,
         )
+        warn_assignees_dropped(item)
         emit(client.summarize(cfg.support_project_id, item, project))
     except PlaneAPIError as exc:
         raise Abort(str(exc)) from exc
@@ -404,6 +448,7 @@ def tecnica_group() -> None:
 @click.option("--trabalho", default=None, help="Orientação extra para a IA do sub-item Trabalho.")
 @click.option("--trabalho-file", type=click.Path(exists=True, dir_okay=False), default=None)
 @click.option("--trabalho-title", default=None, help="Sobrescreve o título gerado pela IA para o sub-item Trabalho.")
+@click.option("--dry-run", is_flag=True, help="Redige os templates e não cria itens no Plane.")
 def tecnica_create(
     from_id: str,
     project_id: str | None,
@@ -416,6 +461,7 @@ def tecnica_create(
     trabalho: str | None,
     trabalho_file: str | None,
     trabalho_title: str | None,
+    dry_run: bool,
 ) -> None:
     """Cria a demanda técnica (template), a relação implements e o sub-item de trabalho."""
     cfg = load_or_abort(require_support_project=True)
@@ -492,6 +538,45 @@ def tecnica_create(
             tech_priority = "none"
 
         assignees = [creator_id] if creator_id else None
+
+        click.echo(f"Redigindo sub-item Trabalho com {llm_settings.provider}...", err=True)
+        try:
+            work_draft = draft_work_item(
+                draft,
+                llm_settings,
+                titulo=tech_name,
+                labels=label_names,
+                orientacao=trabalho_text,
+            )
+        except LlmError as exc:
+            raise Abort(str(exc)) from exc
+        child_title = (
+            sanitize_title(trabalho_title)
+            or sanitize_title(work_draft.get("titulo"))
+            or f"Implementar: {tech_name}"
+        )
+        work_draft["titulo"] = child_title
+        trabalho_html_body = work_item_html(
+            draft=work_draft,
+            responsavel=responsavel_nome,
+            prioridade=work_draft.get("prioridade") or tech_priority,
+        )
+
+        if dry_run:
+            click.echo("Dry-run: nenhum item foi criado no Plane.", err=True)
+            emit(
+                {
+                    "dry_run": True,
+                    "support": client.summarize(
+                        cfg.support_project_id, support_item, support_project
+                    ),
+                    "tecnica": {"name": tech_name, "description_html": tech_html},
+                    "trabalho": {"name": child_title, "description_html": trabalho_html_body},
+                    "label": matched_label,
+                }
+            )
+            return
+
         tech_item = client.create_work_item(
             tech_project_id,
             name=tech_name,
@@ -500,6 +585,7 @@ def tecnica_create(
             created_by=creator_id or None,
             assignees=assignees,
         )
+        warn_assignees_dropped(tech_item)
 
         relation = client.relate_or_link(
             tech_project_id=tech_project_id,
@@ -517,26 +603,7 @@ def tecnica_create(
             "url": client.work_item_url(tech_project_id, tech_item, tech_project),
         }
 
-        click.echo(f"Redigindo sub-item Trabalho com {llm_settings.provider}...", err=True)
         try:
-            work_draft = draft_work_item(
-                draft,
-                llm_settings,
-                titulo=tech_name,
-                labels=label_names,
-                orientacao=trabalho_text,
-            )
-            child_title = (
-                sanitize_title(trabalho_title)
-                or sanitize_title(work_draft.get("titulo"))
-                or f"Implementar: {tech_name}"
-            )
-            work_draft["titulo"] = child_title
-            trabalho_html_body = work_item_html(
-                draft=work_draft,
-                responsavel=responsavel_nome,
-                prioridade=work_draft.get("prioridade") or tech_priority,
-            )
             trabalho_item = client.create_work_item(
                 tech_project_id,
                 name=child_title,
@@ -546,7 +613,8 @@ def tecnica_create(
                 created_by=creator_id or None,
                 assignees=assignees,
             )
-        except (LlmError, PlaneAPIError) as exc:
+            warn_assignees_dropped(trabalho_item)
+        except PlaneAPIError as exc:
             payload["trabalho"] = None
             payload["error"] = (
                 "Demanda técnica criada, mas o sub-item de trabalho falhou. "
