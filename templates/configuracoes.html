@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Configuracoes - Plane Automation{% endblock %}
+{% block topbar_title %}Configuracoes{% endblock %}
+{% block topbar_subtitle %}Chaves de API e integracoes{% endblock %}
+
+{% block content %}
+<div class="card slide-up" style="margin-bottom:24px">
+  <div class="card-header">
+    <h3 class="card-title">Conexao com o Plane</h3>
+    <button class="btn btn-secondary btn-sm" id="test-plane-btn" onclick="testPlane()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
+      Testar Conexao
+    </button>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label">Personal Access Token *</label>
+    <div style="position:relative">
+      <input type="password" class="form-input" id="PLANE_API_KEY" placeholder="plane_api_..." style="padding-right:44px">
+      <button type="button" class="btn-ghost" onclick="togglePassword('PLANE_API_KEY')" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);padding:4px;color:var(--text-muted)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+    <div class="form-hint">Profile Settings &rarr; Personal Access Tokens &rarr; Add personal access token</div>
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label class="form-label">URL da Instancia</label>
+      <input type="url" class="form-input" id="PLANE_BASE_URL" placeholder="https://plane.promaxima.cloud">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Slug do Workspace</label>
+      <input type="text" class="form-input" id="PLANE_WORKSPACE_SLUG" placeholder="dynamics">
+      <div class="form-hint">Apenas o nome, ex: dynamics</div>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label">UUID do Projeto de Suporte</label>
+    <input type="text" class="form-input" id="PLANE_SUPPORT_PROJECT_ID" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    <div class="form-hint">Descubra em Projetos ou rode <code>python -m plane_cli projects</code></div>
+  </div>
+
+  <div id="plane-test-result" style="margin-top:12px"></div>
+</div>
+
+<div class="card slide-up" style="animation-delay:0.1s;margin-bottom:24px">
+  <div class="card-header">
+    <h3 class="card-title">Inteligencia Artificial (LLM)</h3>
+    <button class="btn btn-secondary btn-sm" id="test-llm-btn" onclick="testLLM()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      Testar IA
+    </button>
+  </div>
+
+  <div class="form-group">
+    <label class="form-label">Provider</label>
+    <select class="form-select" id="PLANE_LLM_PROVIDER" onchange="toggleLLMFields()">
+      <option value="groq">Groq (recomendado)</option>
+      <option value="openai">OpenAI</option>
+    </select>
+  </div>
+
+  <div id="groq-fields">
+    <div class="form-group">
+      <label class="form-label">Chave Groq</label>
+      <div style="position:relative">
+        <input type="password" class="form-input" id="GROQ_API_KEY" placeholder="gsk_..." style="padding-right:44px">
+        <button type="button" class="btn-ghost" onclick="togglePassword('GROQ_API_KEY')" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);padding:4px;color:var(--text-muted)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <div class="form-hint">groq.com &rarr; API Keys</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Modelo Groq</label>
+      <input type="text" class="form-input" id="GROQ_MODEL" placeholder="llama-3.3-70b-versatile">
+    </div>
+  </div>
+
+  <div id="openai-fields" style="display:none">
+    <div class="form-group">
+      <label class="form-label">Chave OpenAI</label>
+      <div style="position:relative">
+        <input type="password" class="form-input" id="OPENAI_API_KEY" placeholder="sk-..." style="padding-right:44px">
+        <button type="button" class="btn-ghost" onclick="togglePassword('OPENAI_API_KEY')" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);padding:4px;color:var(--text-muted)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <div class="form-hint">platform.openai.com &rarr; API Keys</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Modelo OpenAI</label>
+      <input type="text" class="form-input" id="OPENAI_MODEL" placeholder="gpt-4o-mini">
+    </div>
+  </div>
+
+  <div id="llm-test-result" style="margin-top:12px"></div>
+</div>
+
+<div class="card slide-up" style="animation-delay:0.15s">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <div>
+      <h3 class="card-title" style="margin-bottom:4px">Salvar Configuracoes</h3>
+      <p style="font-size:13px;color:var(--text-muted)">Grava no arquivo .env. Reinicie o servidor para aplicar.</p>
+    </div>
+    <button class="btn btn-primary btn-lg" id="save-btn" onclick="saveSettings()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+      Salvar
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePassword(id) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function toggleLLMFields() {
+  const provider = document.getElementById('PLANE_LLM_PROVIDER').value;
+  document.getElementById('groq-fields').style.display = provider === 'groq' ? 'block' : 'none';
+  document.getElementById('openai-fields').style.display = provider === 'openai' ? 'block' : 'none';
+}
+
+function resultHTML(ok, message) {
+  const cls = ok ? 'badge-green' : 'badge-red';
+  const icon = ok
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+  return `<span class="badge ${cls}" style="display:inline-flex;gap:6px;align-items:center">${icon} ${message}</span>`;
+}
+
+async function loadSettings() {
+  try {
+    const data = await API.get('/api/settings');
+    for (const key of Object.keys(data)) {
+      const el = document.getElementById(key);
+      if (el) el.value = data[key];
+    }
+    toggleLLMFields();
+  } catch (e) {
+    showToast('Erro ao carregar configuracoes: ' + e.message, 'error');
+  }
+}
+
+async function saveSettings() {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  showLoading('Salvando...');
+  const payload = {};
+  const keys = [
+    'PLANE_API_KEY', 'PLANE_BASE_URL', 'PLANE_WORKSPACE_SLUG', 'PLANE_SUPPORT_PROJECT_ID',
+    'PLANE_LLM_PROVIDER', 'GROQ_API_KEY', 'GROQ_MODEL', 'OPENAI_API_KEY', 'OPENAI_MODEL'
+  ];
+  for (const key of keys) {
+    payload[key] = document.getElementById(key).value;
+  }
+  try {
+    await API.post('/api/settings', payload);
+    hideLoading();
+    showToast('Configuracoes salvas no .env!', 'success');
+  } catch (e) {
+    hideLoading();
+    showToast('Erro ao salvar: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function testPlane() {
+  const btn = document.getElementById('test-plane-btn');
+  const el = document.getElementById('plane-test-result');
+  btn.disabled = true;
+  el.innerHTML = '<span class="badge badge-gray" style="display:inline-flex;gap:6px;align-items:center"><span class="spinner spinner-sm"></span> Testando...</span>';
+  try {
+    const result = await API.post('/api/settings/test-plane', {
+      PLANE_API_KEY: document.getElementById('PLANE_API_KEY').value,
+      PLANE_BASE_URL: document.getElementById('PLANE_BASE_URL').value,
+      PLANE_WORKSPACE_SLUG: document.getElementById('PLANE_WORKSPACE_SLUG').value,
+    });
+    el.innerHTML = resultHTML(true, `Conectado como ${result.user}`);
+  } catch (e) {
+    el.innerHTML = resultHTML(false, e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function testLLM() {
+  const btn = document.getElementById('test-llm-btn');
+  const el = document.getElementById('llm-test-result');
+  btn.disabled = true;
+  el.innerHTML = '<span class="badge badge-gray" style="display:inline-flex;gap:6px;align-items:center"><span class="spinner spinner-sm"></span> Testando...</span>';
+  try {
+    const result = await API.post('/api/settings/test-llm', {
+      PLANE_LLM_PROVIDER: document.getElementById('PLANE_LLM_PROVIDER').value,
+      GROQ_API_KEY: document.getElementById('GROQ_API_KEY').value,
+      GROQ_MODEL: document.getElementById('GROQ_MODEL').value,
+      OPENAI_API_KEY: document.getElementById('OPENAI_API_KEY').value,
+      OPENAI_MODEL: document.getElementById('OPENAI_MODEL').value,
+    });
+    el.innerHTML = resultHTML(true, `Modelo ${result.model} respondeu OK`);
+  } catch (e) {
+    el.innerHTML = resultHTML(false, e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+loadSettings();
+</script>
+{% endblock %}

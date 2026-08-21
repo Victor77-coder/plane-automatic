@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Plane Automation{% endblock %}
+{% block topbar_title %}Dashboard{% endblock %}
+{% block topbar_subtitle %}Visao geral do sistema{% endblock %}
+
+{% block content %}
+<div class="grid grid-4" style="margin-bottom:32px">
+  <div class="stat-card slide-up">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    </div>
+    <div class="stat-value" id="stat-projects">-</div>
+    <div class="stat-label">Projetos</div>
+  </div>
+  <div class="stat-card slide-up" style="animation-delay:0.05s">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </div>
+    <div class="stat-value" id="stat-labels">-</div>
+    <div class="stat-label">Labels (Suporte)</div>
+  </div>
+  <div class="stat-card slide-up" style="animation-delay:0.1s">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    </div>
+    <div class="stat-value" id="stat-states">-</div>
+    <div class="stat-label">Estados (Suporte)</div>
+  </div>
+  <div class="stat-card slide-up" style="animation-delay:0.15s">
+    <div class="stat-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div class="stat-value" id="stat-user">-</div>
+    <div class="stat-label" id="stat-user-label">Usuario</div>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card slide-up" style="animation-delay:0.2s">
+    <div class="card-header">
+      <h3 class="card-title">Acoes Rapidas</h3>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <a href="/intake" class="btn btn-primary btn-lg" style="justify-content:flex-start">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        Criar Intake (Desenvolvedor)
+      </a>
+      <a href="/suporte" class="btn btn-secondary btn-lg" style="justify-content:flex-start">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Criar Demanda de Suporte
+      </a>
+      <a href="/tecnica" class="btn btn-secondary btn-lg" style="justify-content:flex-start">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        Criar Demanda Tecnica
+      </a>
+    </div>
+  </div>
+
+  <div class="card slide-up" style="animation-delay:0.25s">
+    <div class="card-header">
+      <h3 class="card-title">Projetos</h3>
+      <a href="/projetos" class="btn btn-ghost btn-sm">Ver todos</a>
+    </div>
+    <div id="dash-projects-list" style="color:var(--text-muted);font-size:14px">Carregando...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDashboard() {
+  try {
+    const [projects, labels, states, user] = await Promise.allSettled([
+      API.get('/api/projects'),
+      API.get('/api/labels'),
+      API.get('/api/states'),
+      API.get('/api/me')
+    ]);
+
+    if (projects.status === 'fulfilled') {
+      const data = projects.value;
+      document.getElementById('stat-projects').textContent = Array.isArray(data) ? data.length : 0;
+      const list = document.getElementById('dash-projects-list');
+      if (Array.isArray(data) && data.length > 0) {
+        list.innerHTML = data.slice(0, 6).map(p => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-color)">
+            <div>
+              <div style="font-weight:600;color:var(--text-primary)">${p.identifier || '-'}</div>
+              <div style="font-size:12px;color:var(--text-muted)">${p.name || ''}</div>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        list.innerHTML = '<div class="empty-state"><p>Nenhum projeto encontrado</p></div>';
+      }
+    } else {
+      document.getElementById('stat-projects').textContent = '!';
+    }
+
+    if (labels.status === 'fulfilled') {
+      const data = labels.value;
+      document.getElementById('stat-labels').textContent = Array.isArray(data) ? data.length : 0;
+    } else {
+      document.getElementById('stat-labels').textContent = '!';
+    }
+
+    if (states.status === 'fulfilled') {
+      const data = states.value;
+      document.getElementById('stat-states').textContent = Array.isArray(data) ? data.length : 0;
+    } else {
+      document.getElementById('stat-states').textContent = '!';
+    }
+
+    if (user.status === 'fulfilled') {
+      const u = user.value;
+      const name = u.display_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || '!';
+      document.getElementById('stat-user').textContent = name.split(' ')[0];
+      document.getElementById('stat-user-label').textContent = name;
+    } else {
+      document.getElementById('stat-user').textContent = '!';
+      document.getElementById('stat-user-label').textContent = 'Nao autenticado';
+    }
+  } catch (e) {
+    showToast('Erro ao carregar dashboard: ' + e.message, 'error');
+  }
+}
+loadDashboard();
+</script>
+{% endblock %}

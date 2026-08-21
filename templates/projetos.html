@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block title %}Projetos - Plane Automation{% endblock %}
+{% block topbar_title %}Projetos{% endblock %}
+{% block topbar_subtitle %}Todos os projetos do workspace{% endblock %}
+
+{% block content %}
+<div class="card slide-up" style="margin-bottom:24px">
+  <div class="card-header">
+    <h3 class="card-title">Projetos</h3>
+    <button class="btn btn-secondary btn-sm" onclick="loadProjects()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Atualizar
+    </button>
+  </div>
+  <div id="projects-content">
+    <div class="empty-state">
+      <div class="spinner"></div>
+      <p style="margin-top:12px">Carregando projetos...</p>
+    </div>
+  </div>
+</div>
+
+<div class="card slide-up" style="animation-delay:0.1s">
+  <div class="card-header">
+    <h3 class="card-title">Labels</h3>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select class="form-select" id="labels-project-select" style="width:auto;padding:8px 36px 8px 12px;font-size:13px">
+        <option value="">Projeto de suporte (padrao)</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="loadLabels()">Carregar</button>
+    </div>
+  </div>
+  <div id="labels-content">
+    <div class="empty-state">
+      <p>Selecione um projeto e clique em Carregar.</p>
+    </div>
+  </div>
+</div>
+
+<div class="card slide-up" style="margin-top:24px;animation-delay:0.15s">
+  <div class="card-header">
+    <h3 class="card-title">Estados do Workflow</h3>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select class="form-select" id="states-project-select" style="width:auto;padding:8px 36px 8px 12px;font-size:13px">
+        <option value="">Projeto de suporte (padrao)</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="loadStates()">Carregar</button>
+    </div>
+  </div>
+  <div id="states-content">
+    <div class="empty-state">
+      <p>Selecione um projeto e clique em Carregar.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allProjects = [];
+
+async function loadProjects() {
+  const el = document.getElementById('projects-content');
+  el.innerHTML = '<div class="empty-state"><div class="spinner"></div><p style="margin-top:12px">Carregando...</p></div>';
+  try {
+    const projects = await API.get('/api/projects');
+    allProjects = Array.isArray(projects) ? projects : [];
+    if (allProjects.length === 0) {
+      el.innerHTML = '<div class="empty-state"><h3>Nenhum projeto encontrado</h3><p>Verifique a conexao com o Plane.</p></div>';
+      return;
+    }
+    el.innerHTML = `
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Identificador</th>
+              <th>Nome</th>
+              <th>ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${allProjects.map(p => `
+              <tr>
+                <td><span class="badge badge-red">${p.identifier || '-'}</span></td>
+                <td style="color:var(--text-primary);font-weight:500">${p.name || '-'}</td>
+                <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${p.id || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    const selects = [document.getElementById('labels-project-select'), document.getElementById('states-project-select')];
+    selects.forEach(sel => {
+      const current = sel.value;
+      sel.innerHTML = '<option value="">Projeto de suporte (padrao)</option>';
+      allProjects.forEach(p => {
+        sel.innerHTML += `<option value="${p.id}">${p.identifier} - ${p.name}</option>`;
+      });
+      sel.value = current;
+    });
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state"><h3>Erro</h3><p>${e.message}</p></div>`;
+  }
+}
+
+async function loadLabels() {
+  const projectId = document.getElementById('labels-project-select').value;
+  const el = document.getElementById('labels-content');
+  el.innerHTML = '<div class="empty-state"><div class="spinner"></div><p style="margin-top:12px">Carregando...</p></div>';
+  try {
+    const url = projectId ? `/api/labels?project_id=${projectId}` : '/api/labels';
+    const labels = await API.get(url);
+    const arr = Array.isArray(labels) ? labels : [];
+    if (arr.length === 0) {
+      el.innerHTML = '<div class="empty-state"><h3>Nenhuma label</h3></div>';
+      return;
+    }
+    el.innerHTML = `
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${arr.map(l => `
+              <tr>
+                <td style="color:var(--text-primary);font-weight:500">${l.name || '-'}</td>
+                <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${l.id || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state"><h3>Erro</h3><p>${e.message}</p></div>`;
+  }
+}
+
+async function loadStates() {
+  const projectId = document.getElementById('states-project-select').value;
+  const el = document.getElementById('states-content');
+  el.innerHTML = '<div class="empty-state"><div class="spinner"></div><p style="margin-top:12px">Carregando...</p></div>';
+  try {
+    const url = projectId ? `/api/states?project_id=${projectId}` : '/api/states';
+    const states = await API.get(url);
+    const arr = Array.isArray(states) ? states : [];
+    if (arr.length === 0) {
+      el.innerHTML = '<div class="empty-state"><h3>Nenhum estado</h3></div>';
+      return;
+    }
+    el.innerHTML = `
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Grupo</th>
+              <th>Sequencia</th>
+              <th>ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${arr.map(s => `
+              <tr>
+                <td style="color:var(--text-primary);font-weight:500">${s.name || '-'}</td>
+                <td>${formatState(s.group || '')}</td>
+                <td style="color:var(--text-muted)">${s.sequence ?? '-'}</td>
+                <td style="font-family:monospace;font-size:12px;color:var(--text-muted)">${s.id || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state"><h3>Erro</h3><p>${e.message}</p></div>`;
+  }
+}
+
+loadProjects();
+</script>
+{% endblock %}

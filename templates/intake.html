@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Novo Intake - Plane Automation{% endblock %}
+{% block topbar_title %}Novo Intake{% endblock %}
+{% block topbar_subtitle %}Criar item no intake do projeto de suporte{% endblock %}
+
+{% block content %}
+<div class="card slide-up">
+  <div class="card-header">
+    <h3 class="card-title">Formulario de Intake</h3>
+    <span class="badge badge-red">IA Automatica</span>
+  </div>
+  <form id="intake-form">
+    <div class="form-group">
+      <label class="form-label">Relato / Descricao *</label>
+      <textarea class="form-textarea" id="description" rows="6" placeholder="Descreva o problema ou necessidade livremente. A IA vai redigir a demanda estruturada..." required></textarea>
+      <div class="form-hint">Texto livre: ticket, conversa, e-mail ou nota interna.</div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Titulo (opcional)</label>
+        <input type="text" class="form-input" id="title" placeholder="Sobrescreve o titulo gerado pela IA">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prioridade</label>
+        <select class="form-select" id="priority">
+          <option value="none">Nenhuma</option>
+          <option value="low">Baixa</option>
+          <option value="medium">Media</option>
+          <option value="high">Alta</option>
+          <option value="urgent">Urgente</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Labels</label>
+      <div class="tags-container" id="labels-tags"></div>
+      <div class="form-hint">Use produto:sistema para mapear projetos tecnicos.</div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Solicitante (opcional)</label>
+        <input type="text" class="form-input" id="solicitante_nome" placeholder="Nome do solicitante">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Organizacao (opcional)</label>
+        <input type="text" class="form-input" id="organizacao" placeholder="Area ou departamento">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Canal (opcional)</label>
+        <input type="text" class="form-input" id="canal" placeholder="Ex: e-mail, telefone, chat">
+      </div>
+      <div class="form-group"></div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Necessidade (override pos-IA, opcional)</label>
+      <textarea class="form-textarea" id="necessidade" rows="3" placeholder="Sobrescreve a secao Necessidade depois que a IA gerar."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Cenario Atual (override pos-IA, opcional)</label>
+      <textarea class="form-textarea" id="cenario" rows="3" placeholder="Sobrescreve a secao Cenario atual depois que a IA gerar."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Resultado Esperado (override pos-IA, opcional)</label>
+      <textarea class="form-textarea" id="resultado" rows="3" placeholder="Sobrescreve a secao Resultado esperado depois que a IA gerar."></textarea>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:24px">
+      <button type="submit" class="btn btn-primary btn-lg" id="submit-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        Criar Intake
+      </button>
+      <a href="/" class="btn btn-secondary btn-lg">Cancelar</a>
+    </div>
+  </form>
+</div>
+
+<div id="result-area"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const labelsTags = new TagsInput(document.getElementById('labels-tags'), { placeholder: 'produto:sistema, nome-label...' });
+
+document.getElementById('intake-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const description = document.getElementById('description').value.trim();
+  if (!description) { showToast('Preencha a descricao.', 'error'); return; }
+
+  btn.disabled = true;
+  showLoading('Redigindo demanda com IA e criando no Plane...');
+
+  try {
+    const result = await API.post('/api/intake', {
+      description,
+      title: document.getElementById('title').value || undefined,
+      priority: document.getElementById('priority').value,
+      labels: labelsTags.getValues(),
+      solicitante_nome: document.getElementById('solicitante_nome').value || undefined,
+      organizacao: document.getElementById('organizacao').value || undefined,
+      canal: document.getElementById('canal').value || undefined,
+      necessidade: document.getElementById('necessidade').value || undefined,
+      cenario: document.getElementById('cenario').value || undefined,
+      resultado: document.getElementById('resultado').value || undefined,
+    });
+    hideLoading();
+    showToast('Intake criado com sucesso!', 'success');
+    document.getElementById('result-area').innerHTML = `
+      <div class="result-card slide-up">
+        <h3>Intake Criado</h3>
+        <div class="result-item"><span class="result-label">ID</span><span class="result-value">${result.id || '-'}</span></div>
+        <div class="result-item"><span class="result-label">Chave</span><span class="result-value">${result.sequence_id ? (result.url.split('/').pop() || result.sequence_id) : result.id}</span></div>
+        <div class="result-item"><span class="result-label">Nome</span><span class="result-value">${result.name || '-'}</span></div>
+        <div class="result-item"><span class="result-label">Prioridade</span><span class="result-value">${formatPriority(result.priority)}</span></div>
+        <div class="result-item">
+          <span class="result-label">Link</span>
+          <a href="${result.url}" target="_blank" class="btn btn-ghost btn-sm" style="color:var(--red-light)">Abrir no Plane</a>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    hideLoading();
+    showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+{% endblock %}

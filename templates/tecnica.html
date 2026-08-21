@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}Nova Demanda Tecnica - Plane Automation{% endblock %}
+{% block topbar_title %}Nova Demanda Tecnica{% endblock %}
+{% block topbar_subtitle %}Criar demanda tecnica a partir de uma demanda de suporte{% endblock %}
+
+{% block content %}
+<div class="card slide-up">
+  <div class="card-header">
+    <h3 class="card-title">Formulario de Demanda Tecnica</h3>
+    <span class="badge badge-red">Multi-etapa</span>
+  </div>
+  <form id="tecnica-form">
+    <div class="form-group">
+      <label class="form-label">Demanda de Suporte (ID ou Chave) *</label>
+      <input type="text" class="form-input" id="from_id" placeholder="Ex: SUPORTE-123 ou UUID completo" required>
+      <div class="form-hint">A ferramenta busca a demanda de suporte e redige a demanda tecnica automaticamente.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Prioridade</label>
+      <select class="form-select" id="priority">
+        <option value="">Herdar da demanda de suporte</option>
+        <option value="none">Nenhuma</option>
+        <option value="low">Baixa</option>
+        <option value="medium">Media</option>
+        <option value="high">Alta</option>
+        <option value="urgent">Urgente</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Titulo (override pos-IA, opcional)</label>
+      <input type="text" class="form-input" id="title" placeholder="Sobrescreve o titulo gerado pela IA">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Problema Tecnico (override pos-IA, opcional)</label>
+      <textarea class="form-textarea" id="description" rows="4" placeholder="Sobrescreve a secao Problema tecnico depois que a IA gerar."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Solucao Proposta (override pos-IA, opcional)</label>
+      <textarea class="form-textarea" id="solucao" rows="4" placeholder="Sobrescreve a secao Solucao proposta depois que a IA gerar."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Orientacao para Sub-item (opcional)</label>
+      <textarea class="form-textarea" id="trabalho" rows="3" placeholder="Orientacao extra para a IA gerar o sub-item de implementacao."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Titulo do Sub-item (override pos-IA, opcional)</label>
+      <input type="text" class="form-input" id="trabalho_title" placeholder="Sobrescreve o titulo do sub-item de trabalho">
+    </div>
+
+    <div style="display:flex;gap:12px;margin-top:24px">
+      <button type="submit" class="btn btn-primary btn-lg" id="submit-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        Criar Demanda Tecnica
+      </button>
+      <a href="/" class="btn btn-secondary btn-lg">Cancelar</a>
+    </div>
+  </form>
+</div>
+
+<div id="result-area"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('tecnica-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const fromId = document.getElementById('from_id').value.trim();
+  if (!fromId) { showToast('Informe a demanda de suporte.', 'error'); return; }
+
+  btn.disabled = true;
+  showLoading('Buscando demanda de suporte, redigindo tecnica e criando sub-item...');
+
+  try {
+    const result = await API.post('/api/tecnica', {
+      from_id: fromId,
+      title: document.getElementById('title').value || undefined,
+      description: document.getElementById('description').value || undefined,
+      solucao: document.getElementById('solucao').value || undefined,
+      priority: document.getElementById('priority').value || undefined,
+      trabalho: document.getElementById('trabalho').value || undefined,
+      trabalho_title: document.getElementById('trabalho_title').value || undefined,
+    });
+    hideLoading();
+    showToast('Demanda tecnica criada com sucesso!', 'success');
+
+    let html = `
+      <div class="result-card slide-up">
+        <h3>Demanda Tecnica Criada</h3>
+    `;
+
+    if (result.support) {
+      html += `
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Demanda de Origem</div>
+          <div class="result-item"><span class="result-label">Nome</span><span class="result-value">${result.support.name || '-'}</span></div>
+          <div class="result-item"><span class="result-label">Link</span><a href="${result.support.url}" target="_blank" class="btn btn-ghost btn-sm" style="color:var(--red-light)">Abrir</a></div>
+        </div>
+      `;
+    }
+
+    if (result.tecnica) {
+      html += `
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Demanda Tecnica</div>
+          <div class="result-item"><span class="result-label">Nome</span><span class="result-value">${result.tecnica.name || '-'}</span></div>
+          <div class="result-item"><span class="result-label">Link</span><a href="${result.tecnica.url}" target="_blank" class="btn btn-ghost btn-sm" style="color:var(--red-light)">Abrir</a></div>
+        </div>
+      `;
+    }
+
+    if (result.trabalho) {
+      html += `
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Sub-item de Trabalho</div>
+          <div class="result-item"><span class="result-label">Nome</span><span class="result-value">${result.trabalho.name || '-'}</span></div>
+          <div class="result-item"><span class="result-label">Link</span><a href="${result.trabalho.url}" target="_blank" class="btn btn-ghost btn-sm" style="color:var(--red-light)">Abrir</a></div>
+        </div>
+      `;
+    }
+
+    if (result.label) {
+      html += `<div class="result-item"><span class="result-label">Label utilizada</span><span class="result-value">${result.label}</span></div>`;
+    }
+
+    if (result.relation) {
+      html += `<div class="result-item"><span class="result-label">Relacao</span><span class="result-value">${result.relation.type || '-'}</span></div>`;
+    }
+
+    if (result.error) {
+      html += `<div style="margin-top:12px;padding:12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;color:var(--warning);font-size:13px">${result.error}</div>`;
+    }
+
+    html += `</div>`;
+    document.getElementById('result-area').innerHTML = html;
+  } catch (err) {
+    hideLoading();
+    showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+{% endblock %}

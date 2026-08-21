@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
-from environs import Env
+from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parent.parent
 UUID_RE = re.compile(
@@ -16,19 +15,10 @@ UUID_RE = re.compile(
 
 
 def _find_env_path() -> Path | None:
-    for candidate in (Path.cwd() / ".env", ROOT / ".env"):
+    for candidate in (Path.cwd() / ".env", ROOT / ".env", ROOT.parent / ".env"):
         if candidate.is_file():
             return candidate
     return None
-
-
-_ENV_PATH = _find_env_path()
-if _ENV_PATH:
-    load_dotenv(_ENV_PATH)
-
-env = Env()
-if _ENV_PATH:
-    env.read_env(str(_ENV_PATH), recurse=False)
 
 
 class ConfigError(RuntimeError):
@@ -87,8 +77,16 @@ def projects_yaml_path() -> Path:
 
 
 def load_config(*, require_support_project: bool = False) -> Config:
-    api_key = env.str("PLANE_API_KEY", default="").strip()
-    workspace = normalize_workspace_slug(env.str("PLANE_WORKSPACE_SLUG", default=""))
+    env_path = _find_env_path()
+    raw: dict[str, str | None] = {}
+    if env_path:
+        raw = dotenv_values(env_path)
+
+    def _get(key: str, default: str = "") -> str:
+        return str(raw.get(key, default) or default).strip()
+
+    api_key = _get("PLANE_API_KEY")
+    workspace = normalize_workspace_slug(_get("PLANE_WORKSPACE_SLUG"))
     if not api_key:
         raise ConfigError(
             "PLANE_API_KEY não definido. Copie .env.example para .env e preencha o token."
@@ -96,10 +94,10 @@ def load_config(*, require_support_project: bool = False) -> Config:
     if not workspace:
         raise ConfigError(
             "PLANE_WORKSPACE_SLUG não definido. É o slug da URL "
-            "(https://<sua-instancia>/<slug>/projects/)."
+            "(https://plane.promaxima.cloud/<slug>/projects/)."
         )
 
-    support_project_id = normalize_project_id(env.str("PLANE_SUPPORT_PROJECT_ID", default=""))
+    support_project_id = normalize_project_id(_get("PLANE_SUPPORT_PROJECT_ID"))
     if require_support_project and not support_project_id:
         raise ConfigError(
             "PLANE_SUPPORT_PROJECT_ID não definido. Rode `python -m plane_cli projects` "
@@ -107,21 +105,19 @@ def load_config(*, require_support_project: bool = False) -> Config:
         )
 
     return Config(
-        base_url=env.str("PLANE_BASE_URL", default="https://api.plane.so").rstrip("/"),
+        base_url=_get("PLANE_BASE_URL", "https://plane.promaxima.cloud").rstrip("/"),
         api_key=api_key,
         workspace_slug=workspace,
         support_project_id=support_project_id,
         projects_yaml=projects_yaml_path(),
-        llm_provider=env.str("PLANE_LLM_PROVIDER", default="groq").strip().lower() or "groq",
-        groq_api_key=env.str("GROQ_API_KEY", default="").strip(),
-        groq_model=env.str("GROQ_MODEL", default="llama-3.3-70b-versatile").strip()
+        llm_provider=_get("PLANE_LLM_PROVIDER", "groq").lower() or "groq",
+        groq_api_key=_get("GROQ_API_KEY"),
+        groq_model=_get("GROQ_MODEL", "llama-3.3-70b-versatile")
         or "llama-3.3-70b-versatile",
-        openai_api_key=env.str("OPENAI_API_KEY", default="").strip(),
-        openai_model=env.str("OPENAI_MODEL", default="gpt-4o-mini").strip() or "gpt-4o-mini",
-        openai_base_url=(
-            env.str("OPENAI_BASE_URL", default="https://api.openai.com/v1").strip().rstrip("/")
-            or "https://api.openai.com/v1"
-        ),
+        openai_api_key=_get("OPENAI_API_KEY"),
+        openai_model=_get("OPENAI_MODEL", "gpt-4o-mini") or "gpt-4o-mini",
+        openai_base_url=_get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        or "https://api.openai.com/v1",
     )
 
 
