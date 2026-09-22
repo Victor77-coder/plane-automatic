@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Buscar Demandas - Plane Automation{% endblock %}
+{% block topbar_title %}Buscar Demandas{% endblock %}
+{% block topbar_subtitle %}Localize demandas por partes do titulo ou da descricao{% endblock %}
+
+{% block content %}
+<div class="card slide-up">
+  <div class="card-header">
+    <h3 class="card-title">Filtros da pesquisa</h3>
+  </div>
+  <form id="search-form">
+    <div class="form-group">
+      <label class="form-label" for="search-query">Texto *</label>
+      <input type="search" class="form-input" id="search-query" placeholder="Ex: timeout ao importar cotacao" required>
+      <div class="form-hint">A pesquisa nao diferencia maiusculas, minusculas ou acentos.</div>
+    </div>
+
+    <div class="form-group">
+      <div class="project-select-header">
+        <label class="form-label" for="project-select">Projetos *</label>
+        <div class="project-select-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="select-all">Selecionar todos</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="clear-projects">Limpar</button>
+        </div>
+      </div>
+      <select class="form-select project-multi-select" id="project-select" multiple size="7" required>
+        <option disabled>Carregando projetos...</option>
+      </select>
+      <div class="form-hint" id="project-count">Selecione um ou varios projetos.</div>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="search-button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Pesquisar
+    </button>
+  </form>
+</div>
+
+<div id="search-results" class="search-results" aria-live="polite"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const projectSelect = document.getElementById('project-select');
+const projectCount = document.getElementById('project-count');
+const resultsArea = document.getElementById('search-results');
+
+function selectedProjectIds() {
+  return Array.from(projectSelect.selectedOptions).map(option => option.value);
+}
+
+function updateProjectCount() {
+  const count = selectedProjectIds().length;
+  projectCount.textContent = count
+    ? `${count} projeto${count === 1 ? '' : 's'} selecionado${count === 1 ? '' : 's'}.`
+    : 'Selecione um ou varios projetos.';
+}
+
+function renderStatus(title, message, loading = false) {
+  resultsArea.replaceChildren();
+  const card = document.createElement('div');
+  card.className = 'card slide-up';
+  const state = document.createElement('div');
+  state.className = 'empty-state';
+  if (loading) {
+    const spinner = document.createElement('div');
+    spinner.className = 'spinner';
+    state.appendChild(spinner);
+  }
+  const heading = document.createElement('h3');
+  heading.textContent = title;
+  const detail = document.createElement('p');
+  detail.textContent = message;
+  state.append(heading, detail);
+  card.appendChild(state);
+  resultsArea.appendChild(card);
+}
+
+function renderResults(data) {
+  resultsArea.replaceChildren();
+  if (!data.results.length) {
+    renderStatus('Nenhuma demanda encontrada', `Nenhum titulo ou descricao contem "${data.query}".`);
+    return;
+  }
+
+  const summary = document.createElement('div');
+  summary.className = 'search-summary';
+  summary.textContent = `${data.count} demanda${data.count === 1 ? '' : 's'} encontrada${data.count === 1 ? '' : 's'}`;
+  resultsArea.appendChild(summary);
+
+  data.results.forEach(item => {
+    const card = document.createElement('article');
+    card.className = 'demand-card';
+
+    const header = document.createElement('div');
+    header.className = 'demand-card-header';
+    const key = document.createElement('span');
+    key.className = 'badge badge-red';
+    key.textContent = item.key || '-';
+    const project = document.createElement('span');
+    project.className = 'demand-project';
+    project.textContent = item.project_name || item.project_identifier || '-';
+    header.append(key, project);
+
+    const title = document.createElement('a');
+    title.className = 'demand-title';
+    title.href = item.url;
+    title.target = '_blank';
+    title.rel = 'noopener noreferrer';
+    title.textContent = item.name || 'Demanda sem titulo';
+
+    const description = document.createElement('p');
+    description.className = 'demand-description';
+    description.textContent = item.description || 'Sem descricao.';
+
+    const footer = document.createElement('div');
+    footer.className = 'demand-card-footer';
+    const priority = document.createElement('span');
+    priority.innerHTML = formatPriority(item.priority);
+    const open = document.createElement('a');
+    open.className = 'btn btn-ghost btn-sm';
+    open.href = item.url;
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    open.textContent = 'Abrir no Plane';
+    footer.append(priority, open);
+
+    card.append(header, title, description, footer);
+    resultsArea.appendChild(card);
+  });
+}
+
+async function loadProjectOptions() {
+  try {
+    const projects = await API.get('/api/projects');
+    const sorted = (Array.isArray(projects) ? projects : [])
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'));
+    projectSelect.replaceChildren();
+    sorted.forEach(project => {
+      const option = document.createElement('option');
+      option.value = project.id;
+      option.textContent = `${project.identifier || '-'} - ${project.name || '-'}`;
+      projectSelect.appendChild(option);
+    });
+    projectSelect.disabled = sorted.length === 0;
+    if (!sorted.length) {
+      renderStatus('Nenhum projeto encontrado', 'Verifique a conexao e as permissoes no Plane.');
+    }
+    updateProjectCount();
+  } catch (error) {
+    projectSelect.replaceChildren();
+    projectSelect.disabled = true;
+    renderStatus('Erro ao carregar projetos', error.message);
+  }
+}
+
+projectSelect.addEventListener('change', updateProjectCount);
+
+document.getElementById('select-all').addEventListener('click', () => {
+  Array.from(projectSelect.options).forEach(option => { option.selected = true; });
+  updateProjectCount();
+});
+
+document.getElementById('clear-projects').addEventListener('click', () => {
+  Array.from(projectSelect.options).forEach(option => { option.selected = false; });
+  updateProjectCount();
+});
+
+document.getElementById('search-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const query = document.getElementById('search-query').value.trim();
+  const projectIds = selectedProjectIds();
+  if (!query) {
+    showToast('Informe um texto para pesquisar.', 'error');
+    return;
+  }
+  if (!projectIds.length) {
+    showToast('Selecione pelo menos um projeto.', 'error');
+    return;
+  }
+  if (projectIds.length > 20) {
+    showToast('Selecione no maximo 20 projetos.', 'error');
+    return;
+  }
+
+  const button = document.getElementById('search-button');
+  button.disabled = true;
+  renderStatus('Pesquisando demandas', 'Consultando os projetos selecionados...', true);
+  try {
+    const params = new URLSearchParams({ q: query });
+    projectIds.forEach(projectId => params.append('project_id', projectId));
+    const data = await API.get(`/api/demandas/search?${params.toString()}`);
+    renderResults(data);
+  } catch (error) {
+    renderStatus('Erro na pesquisa', error.message);
+    showToast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+loadProjectOptions();
+</script>
+{% endblock %}

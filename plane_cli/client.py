@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 import uuid
+from html import unescape
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin
 
@@ -91,10 +94,84 @@ def _results(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
-        results = data.get("results")
-        if isinstance(results, list):
-            return results
+        for key in ("results", "work_items", "issues"):
+            results = data.get(key)
+            if isinstance(results, list):
+                return results
     return []
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def plain_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        value = value.get("html") or value.get("text") or ""
+    raw = str(value)
+    parser = _HTMLTextExtractor()
+    try:
+        parser.feed(raw)
+        text = " ".join(parser.parts)
+    except Exception:
+        text = re.sub(r"<[^>]+>", " ", raw)
+    return " ".join(unescape(text).split())
+
+
+def work_item_description(item: dict[str, Any]) -> str:
+    for key in ("description_stripped", "description_html", "description"):
+        text = plain_text(item.get(key))
+        if text:
+            return text
+    return ""
+
+
+def normalize_search_text(value: Any) -> str:
+    text = plain_text(value).casefold()
+    return "".join(
+        char
+        for char in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(char)
+    )
+
+
+def work_item_matches(item: dict[str, Any], query: str) -> bool:
+    needle = normalize_search_text(query)
+    if not needle:
+        return False
+    haystack = normalize_search_text(
+        f"{item.get('name') or ''} {work_item_description(item)}"
+    )
+    return needle in haystack
+
+
+def description_excerpt(item: dict[str, Any], limit: int = 220) -> str:
+    text = work_item_description(item)
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def deduplicate_project_items(
+    entries: list[tuple[str, dict[str, Any]]],
+) -> list[tuple[str, dict[str, Any]]]:
+    unique: list[tuple[str, dict[str, Any]]] = []
+    seen: set[tuple[str, str]] = set()
+    for project_id, item in entries:
+        item_id = str(item.get("id") or "")
+        marker = (project_id, item_id)
+        if not item_id or marker in seen:
+            continue
+        seen.add(marker)
+        unique.append((project_id, item))
+    return unique
 
 
 def extract_issue(data: Any) -> dict[str, Any]:
@@ -148,8 +225,22 @@ class PlaneClient:
         *,
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> Any:
-        response = self._http.request(method, path, json=json, params=params)
+        request_kwargs: dict[str, Any] = {"json": json, "params": params}
+        if timeout is not None:
+            request_kwargs["timeout"] = timeout
+        try:
+            response = self._http.request(method, path, **request_kwargs)
+        except httpx.TimeoutException as exc:
+            raise PlaneAPIError(
+                f"Tempo limite excedido ao acessar o Plane em {method} {path}.",
+                status_code=504,
+            ) from exc
+        except httpx.RequestError as exc:
+            raise PlaneAPIError(
+                f"Falha de conexao com o Plane em {method} {path}: {exc}"
+            ) from exc
         if response.status_code >= 400:
             body: Any
             try:
@@ -165,8 +256,14 @@ class PlaneClient:
             return None
         return response.json()
 
-    def _get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
-        return self._request("GET", path, params=params)
+    def _get(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> Any:
+        return self._request("GET", path, params=params, timeout=timeout)
 
     def _post(self, path: str, json: dict[str, Any]) -> Any:
         return self._request("POST", path, json=json)
@@ -224,6 +321,69 @@ class PlaneClient:
 
     def list_labels(self, project_id: str) -> list[dict[str, Any]]:
         return self._paginate(self._project_path(project_id, "labels/"))
+
+    def search_work_items(
+        self, project_id: str, query: str, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        query = query.strip()
+        if not query:
+            return []
+        api_available = True
+        try:
+            data = self._get(
+                self._workspace_path("work-items/search/"),
+                params={
+                    "search": query,
+                    "project_id": project_id,
+                    "workspace_search": "false",
+                    "limit": limit,
+                },
+                timeout=5.0,
+            )
+            items = _results(data)
+        except PlaneAPIError as exc:
+            if exc.status_code not in (400, 404, 405, 504):
+                raise
+            api_available = False
+            items = []
+
+        matches = self._hydrate_and_filter_search_items(
+            project_id, items, query, limit=limit
+        )
+        if matches:
+            return matches
+
+        # Algumas versões self-hosted respondem 200, mas não possuem índice
+        # textual funcional. Nesses casos, a busca local garante o substring.
+        if api_available or not items:
+            items = self._list_work_items(project_id)
+            return self._hydrate_and_filter_search_items(
+                project_id, items, query, limit=limit
+            )
+        return []
+
+    def _hydrate_and_filter_search_items(
+        self,
+        project_id: str,
+        items: list[dict[str, Any]],
+        query: str,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        matches: list[dict[str, Any]] = []
+        for item in items:
+            item_id = str(item.get("id") or "")
+            if item_id and not work_item_description(item):
+                try:
+                    item = self.retrieve_work_item(project_id, item_id)
+                except PlaneAPIError as exc:
+                    if exc.status_code not in (400, 404):
+                        raise
+            if work_item_matches(item, query):
+                matches.append(item)
+                if len(matches) >= limit:
+                    break
+        return matches
 
     def me(self) -> dict[str, Any]:
         data = self._get("/api/v1/users/me/")

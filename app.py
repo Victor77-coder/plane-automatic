@@ -9,7 +9,12 @@ from typing import Any
 from dotenv import dotenv_values
 from flask import Flask, jsonify, render_template, request
 
-from plane_cli.client import PlaneAPIError, PlaneClient
+from plane_cli.client import (
+    PlaneAPIError,
+    PlaneClient,
+    deduplicate_project_items,
+    description_excerpt,
+)
 from plane_cli.config import ROOT, Config, ConfigError, load_config, resolve_llm
 from plane_cli.llm import (
     LlmError,
@@ -141,6 +146,11 @@ def projetos_page():
     return render_template("projetos.html")
 
 
+@app.route("/demandas")
+def demandas_page():
+    return render_template("demandas.html")
+
+
 @app.route("/configuracoes")
 def settings_page():
     return render_template("configuracoes.html")
@@ -216,8 +226,66 @@ def api_projects():
         with get_client(cfg) as client:
             projects = client.list_projects()
         return jsonify(projects)
-    except (ConfigError, PlaneAPIError) as e:
+    except ConfigError as e:
         return error_response(str(e))
+    except PlaneAPIError as e:
+        status = 504 if e.status_code == 504 else 400
+        return error_response(str(e), status)
+
+
+@app.route("/api/demandas/search")
+def api_search_demandas():
+    query = request.args.get("q", "").strip()
+    project_ids = list(dict.fromkeys(request.args.getlist("project_id")))
+    if not query:
+        return error_response("Informe um texto para pesquisar.")
+    if not project_ids:
+        return error_response("Selecione pelo menos um projeto.")
+    if len(project_ids) > 20:
+        return error_response("Selecione no maximo 20 projetos por pesquisa.")
+
+    try:
+        cfg = get_config()
+        with get_client(cfg) as client:
+            projects = client.list_projects()
+            projects_by_id = {
+                str(project.get("id")): project
+                for project in projects
+                if project.get("id")
+            }
+            invalid_ids = [
+                project_id for project_id in project_ids if project_id not in projects_by_id
+            ]
+            if invalid_ids:
+                return error_response("Um ou mais projetos selecionados sao invalidos.")
+
+            found_items: list[tuple[str, dict[str, Any]]] = []
+            for project_id in project_ids:
+                for item in client.search_work_items(project_id, query):
+                    found_items.append((project_id, item))
+
+            results: list[dict[str, Any]] = []
+            for project_id, item in deduplicate_project_items(found_items):
+                project = projects_by_id[project_id]
+                results.append(
+                    {
+                        "id": str(item["id"]),
+                        "key": client.issue_key(item, project),
+                        "name": item.get("name") or "",
+                        "description": description_excerpt(item),
+                        "priority": item.get("priority") or "none",
+                        "project_id": project_id,
+                        "project_name": project.get("name") or "",
+                        "project_identifier": project.get("identifier") or "",
+                        "url": client.work_item_url(project_id, item, project),
+                    }
+                )
+        return jsonify({"query": query, "count": len(results), "results": results})
+    except ConfigError as e:
+        return error_response(str(e))
+    except PlaneAPIError as e:
+        status = 504 if e.status_code == 504 else 400
+        return error_response(str(e), status)
 
 
 @app.route("/api/labels")

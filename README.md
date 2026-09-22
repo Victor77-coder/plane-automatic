@@ -114,6 +114,13 @@ plane-cli suporte create --help
 
 `--dry-run` redige o template e **não** cria o item no Plane. A saída dos `create` é JSON no stdout (id, sequence, url). Erros e avisos vão para stderr.
 
+## Interface web e busca de demandas
+
+Inicie a interface com `python app.py` e acesse `http://localhost:5000`.
+Em **Buscar Demandas**, informe parte do título ou da descrição e selecione um ou
+mais projetos. A busca ignora diferenças entre maiúsculas, minúsculas e acentos,
+e cada resultado possui um link direto para o Plane.
+
 ## Helpers
 
 ```bash
@@ -171,7 +178,7 @@ python -m plane_cli tecnica create --from SUPORTE-123 --dry-run
 
 ## Estrutura
 
-```
+```text
 plane-automatic/
   .env.example
   projects.yaml.example
