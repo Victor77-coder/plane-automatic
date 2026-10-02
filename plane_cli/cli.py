@@ -448,6 +448,8 @@ def tecnica_group() -> None:
 @click.option("--trabalho", default=None, help="Orientação extra para a IA do sub-item Trabalho.")
 @click.option("--trabalho-file", type=click.Path(exists=True, dir_okay=False), default=None)
 @click.option("--trabalho-title", default=None, help="Sobrescreve o título gerado pela IA para o sub-item Trabalho.")
+@click.option("--start-date", default=None, help="Data de início (YYYY-MM-DD) na demanda técnica e no sub-item Trabalho.")
+@click.option("--target-date", default=None, help="Data alvo / finalização (YYYY-MM-DD) na demanda técnica e no sub-item Trabalho.")
 @click.option("--dry-run", is_flag=True, help="Redige os templates e não cria itens no Plane.")
 def tecnica_create(
     from_id: str,
@@ -461,6 +463,8 @@ def tecnica_create(
     trabalho: str | None,
     trabalho_file: str | None,
     trabalho_title: str | None,
+    start_date: str | None,
+    target_date: str | None,
     dry_run: bool,
 ) -> None:
     """Cria a demanda técnica (template), a relação implements e o sub-item de trabalho."""
@@ -584,6 +588,8 @@ def tecnica_create(
             priority=tech_priority,
             created_by=creator_id or None,
             assignees=assignees,
+            start_date=start_date,
+            target_date=target_date,
         )
         warn_assignees_dropped(tech_item)
 
@@ -612,6 +618,8 @@ def tecnica_create(
                 parent=str(tech_item["id"]),
                 created_by=creator_id or None,
                 assignees=assignees,
+                start_date=start_date,
+                target_date=target_date,
             )
             warn_assignees_dropped(trabalho_item)
         except PlaneAPIError as exc:

@@ -545,6 +545,8 @@ class PlaneClient:
         labels: list[str] | None = None,
         created_by: str | None = None,
         assignees: list[str] | None = None,
+        start_date: str | None = None,
+        target_date: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "name": name,
@@ -561,6 +563,10 @@ class PlaneClient:
             payload["created_by"] = created_by
         if assignees:
             payload["assignees"] = assignees
+        if start_date:
+            payload["start_date"] = start_date
+        if target_date:
+            payload["target_date"] = target_date
         try:
             data = self._try_item_paths("POST", project_id, "", json=payload)
         except PlaneAPIError as exc:
@@ -572,6 +578,20 @@ class PlaneClient:
                 return item
             raise
         return extract_issue(data)
+
+    def update_work_item(
+        self,
+        project_id: str,
+        work_item_id: str,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        data = self._try_item_paths(
+            "PATCH",
+            project_id,
+            f"{work_item_id}/",
+            json=fields,
+        )
+        return extract_issue(data) if isinstance(data, dict) else {"id": work_item_id, **fields}
 
     def create_relation(
         self,
